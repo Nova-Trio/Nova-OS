@@ -1,0 +1,4 @@
+*.EFI
+build/
+compile_commands.json
+*.img
