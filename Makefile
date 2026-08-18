@@ -7,8 +7,32 @@ INC_FLAGS := $(addprefix -I, $(INCDIRS))
 EFI_CFLAGS = $(EFI_TARGET) -ffreestanding -fno-stack-protector -fshort-wchar -mno-red-zone -Wall -Wextra -std=c17 -MMD -MP $(INC_FLAGS)
 EFI_LDFLAGS = $(EFI_TARGET) -fuse-ld=lld -nostdlib -Wl,-entry:efi_main -Wl,-subsystem:efi_application
 
-OVMF ?= /usr/share/edk2/x64/OVMF.4m.fd
+OVMF_PATHS := /usr/share/edk2/x64/OVMF.4m.fd $(wildcard fw/*.fd)
+
+OVMF ?= $(firstword $(wildcard $(OVMF_PATHS)))
+
+ifeq ($(OS),Windows_NT)
+    QEMU_ACCEL ?=
+    QEMU_CPU ?= -cpu qemu64
+else
+    ifeq ($(shell uname -s),Linux)
+        ifneq ($(wildcard /dev/kvm),)
+            QEMU_ACCEL ?= -accel kvm
+            QEMU_CPU ?= -cpu host
+        else
+            QEMU_ACCEL ?= -accel tcg
+            QEMU_CPU ?= -cpu qemu64
+        endif
+    else
+        QEMU_ACCEL ?=
+        QEMU_CPU ?= -cpu qemu64
+    endif
+endif
+
+HAVE_PARTED := $(shell command -v parted 2> /dev/null)
+
 IMG = disk.img
+
 EFI = BOOTX64.EFI
 BUILD_DIR = build
 
@@ -31,17 +55,23 @@ $(EFI): $(BUILD_DIR)/bootloader.o
 
 $(IMG): $(EFI)
 	dd if=/dev/zero of=$@ bs=1M count=64 status=none
+ifneq ($(HAVE_PARTED),)
 	parted -s $@ mklabel gpt mkpart ESP fat32 2048s 100% set 1 esp on
 	mformat -i $@@@1M -F ::
 	mmd -i $@@@1M ::/EFI ::/EFI/BOOT
 	mcopy -i $@@@1M $< ::/EFI/BOOT/$<
+else
+	mformat -i $@ -F ::
+	mmd -i $@ ::/EFI ::/EFI/BOOT
+	mcopy -i $@ $< ::/EFI/BOOT/$<
+endif
 
 run: $(IMG)
-	qemu-system-x86_64 -bios $(OVMF) -drive file=$(IMG),format=raw -cpu host -accel kvm -serial stdio
+	qemu-system-x86_64 -bios $(OVMF) -drive file=$(IMG),format=raw $(QEMU_CPU) $(QEMU_ACCEL) -serial stdio
 	reset
 
 run-debug: $(IMG)
-	qemu-system-x86_64 -bios $(OVMF) -drive file=$(IMG),format=raw -cpu host -accel kvm -s -S -serial stdio
+	qemu-system-x86_64 -bios $(OVMF) -drive file=$(IMG),format=raw $(QEMU_CPU) $(QEMU_ACCEL) -s -S -serial stdio
 	reset
 
 clean:
@@ -56,4 +86,4 @@ run-hw: install
 	sudo grub-reboot "nova_os"
 	systemctl reboot
 
-.PHONY: all run clean install test-hw
+.PHONY: all run clean install run-hw
