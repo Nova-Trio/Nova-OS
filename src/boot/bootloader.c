@@ -117,6 +117,18 @@ static EFI_STATUS map_range_2mb(uint64_t *pml4, uint64_t virt_base, uint64_t phy
   return EFI_SUCCESS;
 }
 
+static int guid_eq(const EFI_GUID *a, const EFI_GUID *b) {
+  if (a->Data1 != b->Data1 || a->Data2 != b->Data2 || a->Data3 != b->Data3) {
+    return 0;
+  }
+  for (int i = 0; i < 8; i++) {
+    if (a->Data4[i] != b->Data4[i]) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
 static void *get_rsdp(EFI_SYSTEM_TABLE *st) {
   static EFI_GUID acpi2_guid = EFI_ACPI_20_TABLE_GUID;
   static EFI_GUID acpi1_guid = EFI_ACPI_10_TABLE_GUID;
@@ -124,15 +136,17 @@ static void *get_rsdp(EFI_SYSTEM_TABLE *st) {
   void *rsdp = NULL;
   for (UINTN i = 0; i < st->NumberOfTableEntries; i++) {
     EFI_GUID *g = &st->ConfigurationTable[i].VendorGuid;
-    if (g->Data1 == acpi2_guid.Data1 && g->Data2 == acpi2_guid.Data2 && g->Data3 == acpi2_guid.Data3) {
-      return st->ConfigurationTable[i].VendorTable;
+    if (guid_eq(g, &acpi2_guid)) {
+      return st->ConfigurationTable[i].VendorTable; // XSDT
     }
-    if (g->Data1 == acpi1_guid.Data1 && g->Data2 == acpi1_guid.Data2 && g->Data3 == acpi1_guid.Data3) {
-      rsdp = st->ConfigurationTable[i].VendorTable;
+    if (guid_eq(g, &acpi1_guid)) {
+      rsdp = st->ConfigurationTable[i].VendorTable; // RSDT
     }
   }
   return rsdp;
 }
+
+
 
 EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
   static EFI_GUID loaded_image_guid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
