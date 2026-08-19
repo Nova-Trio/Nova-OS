@@ -341,52 +341,59 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
 
   VOID *rsdp = get_rsdp(SystemTable);
 
+  EFI_PHYSICAL_ADDRESS boot_info_phys = 0;
+  s = SystemTable->BootServices->AllocatePages(AllocateAnyPages, EfiLoaderData, 1, &boot_info_phys);
+  if (s != EFI_SUCCESS) return s;
+  mem_zero((VOID *)boot_info_phys, 4096);
+
+  BootInfo *boot_info = (BootInfo *)boot_info_phys;
+  boot_info->framebuffer = fb;
+  boot_info->framebuffer.base += HHDM_BASE;
+  boot_info->rsdp = rsdp ? (VOID *)((uint64_t)rsdp + HHDM_BASE) : NULL;
+  boot_info->pml4 = (uint64_t *)(pml4_phys + HHDM_BASE);
+
+  boot_info->kernel.phys_base = k_min_phys;
+  boot_info->kernel.virt_base = k_min_virt;
+  boot_info->kernel.size = k_max_phys - k_min_phys;
+
+  boot_info->stack.phys_base = stack_phys;
+  boot_info->stack.virt_base = STACK_VADDR;
+  boot_info->stack.size = STACK_PAGES * 4096ULL;
+
   UINTN map_size = 0;
   UINTN map_key = 0;
   UINTN desc_size = 0;
   uint32_t desc_ver = 0;
   VOID *mmap = NULL;
 
-  s = SystemTable->BootServices->GetMemoryMap(&map_size, NULL, &map_key, &desc_size, &desc_ver);
-  map_size += 2 * desc_size;
+  for (;;) {
+    map_size = 0;
+    SystemTable->BootServices->GetMemoryMap(&map_size, NULL, &map_key, &desc_size, &desc_ver);
+    map_size += 8 * desc_size;
 
-  s = SystemTable->BootServices->AllocatePool(EfiLoaderData, map_size, &mmap);
-  if (s != EFI_SUCCESS) return s;
+    s = SystemTable->BootServices->AllocatePool(EfiLoaderData, map_size, &mmap);
+    if (s != EFI_SUCCESS) return s;
 
-  s = SystemTable->BootServices->GetMemoryMap(&map_size, mmap, &map_key, &desc_size, &desc_ver);
-  if (s != EFI_SUCCESS) {
-    SystemTable->BootServices->FreePool(mmap);
-    return s;
-  }
-
-  BootInfo boot_info;
-  boot_info.framebuffer = fb;
-  boot_info.framebuffer.base += HHDM_BASE;
-  boot_info.memory_map.map = (VOID *)((uint64_t)mmap + HHDM_BASE);
-  boot_info.memory_map.size = map_size;
-  boot_info.memory_map.descriptor_size = desc_size;
-  boot_info.memory_map.descriptor_version = desc_ver;
-  boot_info.rsdp = rsdp ? (VOID *)((uint64_t)rsdp + HHDM_BASE) : NULL;
-  boot_info.pml4 = (uint64_t *)(pml4_phys + HHDM_BASE);
-
-  boot_info.kernel.phys_base = k_min_phys;
-  boot_info.kernel.virt_base = k_min_virt;
-  boot_info.kernel.size = k_max_phys - k_min_phys;
-
-  boot_info.stack.phys_base = stack_phys;
-  boot_info.stack.virt_base = STACK_VADDR;
-  boot_info.stack.size = STACK_PAGES * 4096ULL;
-
-  s = SystemTable->BootServices->ExitBootServices(ImageHandle, map_key);
-  if (s != EFI_SUCCESS) {
     s = SystemTable->BootServices->GetMemoryMap(&map_size, mmap, &map_key, &desc_size, &desc_ver);
-    if (s != EFI_SUCCESS) return s;
-    boot_info.memory_map.size = map_size;
+    if (s != EFI_SUCCESS) {
+      SystemTable->BootServices->FreePool(mmap);
+      return s;
+    }
+
+    boot_info->memory_map.map = (VOID *)((uint64_t)mmap + HHDM_BASE);
+    boot_info->memory_map.size = map_size;
+    boot_info->memory_map.descriptor_size = desc_size;
+    boot_info->memory_map.descriptor_version = desc_ver;
+
     s = SystemTable->BootServices->ExitBootServices(ImageHandle, map_key);
-    if (s != EFI_SUCCESS) return s;
+    if (s == EFI_SUCCESS) {
+      break;
+    }
+
+    SystemTable->BootServices->FreePool(mmap);
   }
 
-  uint64_t boot_info_virt = (uint64_t)&boot_info + HHDM_BASE;
+  uint64_t boot_info_virt = boot_info_phys + HHDM_BASE;
 
   __asm__ volatile(
     "cli\n\t"
