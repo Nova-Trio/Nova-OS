@@ -199,12 +199,29 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     return 1; // EFI_LOAD_ERROR
   }
 
+  uint64_t k_min_virt = (uint64_t)-1;
+  uint64_t k_max_virt = 0;
   UINTN loadable_segments = 0;
+
   for (UINTN i = 0; i < ehdr->e_phnum; i++) {
     Elf64_Phdr *phdr = (Elf64_Phdr *)((uint8_t *)kernel_buffer + ehdr->e_phoff + (i * ehdr->e_phentsize));
-    if(phdr->p_type == PT_LOAD){
-      loadable_segments++;
+    if (phdr->p_type != PT_LOAD) {
+      continue;
     }
+
+    if (phdr->p_offset + phdr->p_filesz > kernel_size || phdr->p_filesz > phdr->p_memsz) {
+      SystemTable->ConOut->OutputString(SystemTable->ConOut, (CHAR16 *)u"Malformed segment detected\r\n");
+      SystemTable->BootServices->FreePool(kernel_buffer);
+      return 1;
+    }
+
+    if (phdr->p_vaddr < k_min_virt) {
+      k_min_virt = phdr->p_vaddr;
+    }
+    if (phdr->p_vaddr + phdr->p_memsz > k_max_virt) {
+      k_max_virt = phdr->p_vaddr + phdr->p_memsz;
+    }
+    loadable_segments++;
   }
 
   if (loadable_segments == 0) {
@@ -213,9 +230,24 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     return 1;
   }
 
-  KernelSegmentMapping *mappings = NULL;
-  s = SystemTable->BootServices->AllocatePool(EfiLoaderData, loadable_segments * sizeof(KernelSegmentMapping), (VOID**)&mappings);
+  uint64_t aligned_min_virt = k_min_virt & ~0xFFFULL;
+  uint64_t aligned_max_virt = (k_max_virt + 0xFFFULL) & ~0xFFFULL;
+  UINTN total_kernel_pages = (aligned_max_virt - aligned_min_virt) / 4096ULL;
+  uint64_t total_kernel_size = total_kernel_pages * 4096ULL;
+
+  EFI_PHYSICAL_ADDRESS kernel_phys_base = 0;
+  s = SystemTable->BootServices->AllocatePages(AllocateAnyPages, EfiLoaderData, total_kernel_pages, &kernel_phys_base);
   if (s != EFI_SUCCESS) {
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, (CHAR16 *)u"Failed to allocate physical pages\r\n");
+    SystemTable->BootServices->FreePool(kernel_buffer);
+    return s;
+  }
+  mem_zero((VOID *)kernel_phys_base, total_kernel_size);
+
+  KernelSegmentMapping *mappings = NULL;
+  s = SystemTable->BootServices->AllocatePool(EfiLoaderData, loadable_segments * sizeof(KernelSegmentMapping), (VOID **)&mappings);
+  if (s != EFI_SUCCESS) {
+    SystemTable->BootServices->FreePages(kernel_phys_base, total_kernel_pages);
     SystemTable->BootServices->FreePool(kernel_buffer);
     return s;
   }
@@ -227,30 +259,15 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
       continue;
     }
 
-    if (phdr->p_offset + phdr->p_filesz > kernel_size || phdr->p_filesz > phdr->p_memsz) {
-      SystemTable->ConOut->OutputString(SystemTable->ConOut, (CHAR16 *)u"Malformed segment detected\r\n");
-      SystemTable->BootServices->FreePool(mappings);
-      SystemTable->BootServices->FreePool(kernel_buffer);
-      return 1;
-    }
-
     uint64_t page_offset = phdr->p_vaddr & 0xFFFULL;
     uint64_t aligned_vaddr = phdr->p_vaddr - page_offset;
     UINTN pages = (phdr->p_memsz + page_offset + 0xFFFULL) / 4096ULL;
+    uint64_t seg_phys = kernel_phys_base + (aligned_vaddr - aligned_min_virt);
 
-    EFI_PHYSICAL_ADDRESS phys_addr = 0;
-    s = SystemTable->BootServices->AllocatePages(AllocateAnyPages, EfiLoaderData, pages, &phys_addr);
-    if (s != EFI_SUCCESS) {
-      SystemTable->ConOut->OutputString(SystemTable->ConOut, (CHAR16 *)u"Failed to allocate physical pages\r\n");
-      SystemTable->BootServices->FreePool(mappings);
-      SystemTable->BootServices->FreePool(kernel_buffer);
-      return s;
-    }
-    mem_zero((VOID *)phys_addr, pages * 4096ULL);
-    mem_copy((VOID *)(phys_addr + page_offset), (const VOID *)((uint8_t *)kernel_buffer + phdr->p_offset), phdr->p_filesz);
+    mem_copy((VOID *)(seg_phys + page_offset), (const VOID *)((uint8_t *)kernel_buffer + phdr->p_offset), phdr->p_filesz);
 
     mappings[seg_idx].virt_addr = aligned_vaddr;
-    mappings[seg_idx].phys_addr = phys_addr;
+    mappings[seg_idx].phys_addr = seg_phys;
     mappings[seg_idx].num_pages = pages;
     mappings[seg_idx].flags = phdr->p_flags;
     seg_idx++;
@@ -260,6 +277,49 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
   SystemTable->BootServices->FreePool(kernel_buffer);
 
   SystemTable->ConOut->OutputString(SystemTable->ConOut, (CHAR16 *)u"Kernel loaded into physical memory.\r\n");
+
+  // When the kernel gets disk & fs drivers remove this
+
+  EFI_FILE_PROTOCOL *font_file = NULL;
+  s = root_dir->Open(root_dir, &font_file, (CHAR16 *)u"\\EFI\\novaos\\zap-light16.psf", EFI_FILE_MODE_READ, 0);
+  if (s != EFI_SUCCESS) {
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, (CHAR16 *)u"Failed to open font file\r\n");
+    return s;
+  }
+
+  UINTN font_info_size = 0;
+  font_file->GetInfo(font_file, &file_info_guid, &font_info_size, NULL);
+
+  EFI_FILE_INFO *font_file_info = NULL;
+  SystemTable->BootServices->AllocatePool(EfiLoaderData, font_info_size, (VOID **)&font_file_info);
+  font_file->GetInfo(font_file, &file_info_guid, &font_info_size, (VOID *)font_file_info);
+
+  UINTN font_size = font_file_info->FileSize;
+  SystemTable->BootServices->FreePool(font_file_info);
+
+  UINTN font_pages = (font_size + 0xFFFULL) / 4096ULL;
+  EFI_PHYSICAL_ADDRESS font_phys = 0;
+  s = SystemTable->BootServices->AllocatePages(AllocateAnyPages, EfiLoaderData, font_pages, &font_phys);
+  if (s != EFI_SUCCESS) {
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, (CHAR16 *)u"Failed to allocate pages for font\r\n");
+    return s;
+  }
+
+  s = font_file->Read(font_file, &font_size, (VOID *)font_phys);
+  font_file->Close(font_file);
+  root_dir->Close(root_dir);
+  if (s != EFI_SUCCESS) {
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, (CHAR16 *)u"Failed to read font file\r\n");
+    return s;
+  }
+
+  PSF1_Header *font_hdr = (PSF1_Header *)font_phys;
+  if (font_hdr->magic[0] != PSF1_MAGIC0 || font_hdr->magic[1] != PSF1_MAGIC1) {
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, (CHAR16 *)u"Invalid PSF1 font\r\n");
+    return 1;
+  }
+
+  // END
 
   static EFI_GUID gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
   EFI_GRAPHICS_OUTPUT_PROTOCOL *gop = NULL;
@@ -296,22 +356,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
   s = map_range_2mb(pml4, HHDM_BASE, 0, max_phys, SystemTable->BootServices);
   if (s != EFI_SUCCESS) return s;
 
-  uint64_t k_min_phys = mappings[0].phys_addr;
-  uint64_t k_max_phys = mappings[0].phys_addr + (mappings[0].num_pages * 4096ULL);
-  uint64_t k_min_virt = mappings[0].virt_addr;
-  uint64_t k_max_virt = mappings[0].virt_addr + (mappings[0].num_pages * 4096ULL);
-
   for (UINTN i = 0; i < loadable_segments; i++) {
-    uint64_t p_start = mappings[i].phys_addr;
-    uint64_t p_end = mappings[i].phys_addr + (mappings[i].num_pages * 4096ULL);
-    uint64_t v_start = mappings[i].virt_addr;
-    uint64_t v_end = mappings[i].virt_addr + (mappings[i].num_pages * 4096ULL);
-
-    if (p_start < k_min_phys) k_min_phys = p_start;
-    if (p_end > k_max_phys) k_max_phys = p_end;
-    if (v_start < k_min_virt) k_min_virt = v_start;
-    if (v_end > k_max_virt) k_max_virt = v_end;
-
     uint64_t pte_flags = (mappings[i].flags & PF_W) ? PTE_WRITABLE : 0;
     for (UINTN p = 0; p < mappings[i].num_pages; p++) {
       uint64_t v = mappings[i].virt_addr + (p * 4096ULL);
@@ -352,9 +397,14 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
   boot_info->rsdp = rsdp ? (VOID *)((uint64_t)rsdp + HHDM_BASE) : NULL;
   boot_info->pml4 = (uint64_t *)(pml4_phys + HHDM_BASE);
 
-  boot_info->kernel.phys_base = k_min_phys;
-  boot_info->kernel.virt_base = k_min_virt;
-  boot_info->kernel.size = k_max_phys - k_min_phys;
+  // Read above
+  boot_info->font.header = (PSF1_Header *)(font_phys + HHDM_BASE);
+  boot_info->font.glyph_buffer = (void *)(font_phys + sizeof(PSF1_Header) + HHDM_BASE);
+  // END
+
+  boot_info->kernel.phys_base = kernel_phys_base;
+  boot_info->kernel.virt_base = aligned_min_virt;
+  boot_info->kernel.size = total_kernel_size;
 
   boot_info->stack.phys_base = stack_phys;
   boot_info->stack.virt_base = STACK_VADDR;

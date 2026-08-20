@@ -12,11 +12,11 @@ BOOT_SRCS := $(wildcard $(SRC_DIR)/boot/*.c)
 BOOT_OBJS := $(patsubst $(SRC_DIR)/boot/%.c, $(BUILD_DIR)/boot/%.o, $(BOOT_SRCS))
 
 KERNEL_TARGET = -target x86_64-unknown-none-elf
-KERNEL_CFLAGS = $(KERNEL_TARGET) -ffreestanding -fno-stack-protector -fno-pie -fno-pic -mno-red-zone -mcmodel=kernel -Wall -Wextra -std=c17 -MMD -MP $(INC_FLAGS)
+KERNEL_CFLAGS = $(KERNEL_TARGET) -ffreestanding -fno-stack-protector -fno-pie -fno-pic -mno-red-zone -mno-sse -mcmodel=kernel -Wall -Wextra -std=c17 -MMD -MP $(INC_FLAGS)
 KERNEL_LDFLAGS = $(KERNEL_TARGET) -fuse-ld=lld -nostdlib -static -Wl,-T,src/kernel/linker.ld -Wl,-z,max-page-size=0x1000
 KERNEL = kernel.elf
 
-KERNEL_SRCS := $(wildcard $(SRC_DIR)/kernel/*.c)
+KERNEL_SRCS := $(shell find $(SRC_DIR)/kernel -name '*.c')
 KERNEL_OBJS := $(patsubst $(SRC_DIR)/kernel/%.c, $(BUILD_DIR)/kernel/%.o, $(KERNEL_SRCS))
 
 OVMF_PATHS := /usr/share/edk2/x64/OVMF.4m.fd $(wildcard fw/*.fd)
@@ -80,11 +80,13 @@ ifneq ($(HAVE_PARTED),)
 	mmd -i $@@@1M ::/EFI ::/EFI/BOOT ::/EFI/novaos
 	mcopy -i $@@@1M $(EFI) ::/EFI/BOOT/BOOTX64.EFI
 	mcopy -i $@@@1M $(KERNEL) ::/EFI/novaos/$(KERNEL)
+	mcopy -i $@@@1M zap-light16.psf ::/EFI/novaos/zap-light16.psf
 else
 	mformat -i $@ -F ::
 	mmd -i $@ ::/EFI ::/EFI/BOOT ::/EFI/novaos
 	mcopy -i $@ $(EFI) ::/EFI/BOOT/BOOTX64.EFI
 	mcopy -i $@ $(KERNEL) ::/EFI/novaos/$(KERNEL)
+	mcopy -i $@ zap-light16.psf ::/EFI/novaos/zap-light16.psf
 endif
 
 run: $(IMG)

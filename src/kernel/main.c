@@ -1,4 +1,5 @@
 #include <bootinfo.h>
+#include <con.h>
 
 __attribute__((noreturn)) void _start(BootInfo *boot_info) {
   for (uint32_t i = 0; i < 256; i++) {
@@ -13,15 +14,11 @@ __attribute__((noreturn)) void _start(BootInfo *boot_info) {
     : "rax", "memory"
   );
 
-  uint32_t *fb = (uint32_t *)boot_info->framebuffer.base;
-  uint32_t pitch = boot_info->framebuffer.pixels_per_scanline;
+  console_init(boot_info);
+  console_set_color(0x00FFFFFF, 0x00000000);
+  console_clear();
 
-  for (uint32_t y = 0; y < boot_info->framebuffer.height; y++) {
-    for (uint32_t x = 0; x < boot_info->framebuffer.width; x++) {
-      fb[y * pitch + x] = 0x0000FF00;
-    }
-  }
-
+  kprintf("NovaOS Cros!\n");
 
   for (;;) {
     __asm__ volatile("hlt");

@@ -32,9 +32,30 @@ typedef struct {
   uint64_t size;
 } BootRegion;
 
+// When the kernel gets disk & fs drivers remove this
+
+#define PSF1_MAGIC0 0x36
+#define PSF1_MAGIC1 0x04
+
+#define PSF1_MODE512 0x01
+
+typedef struct {
+  uint8_t magic[2];
+  uint8_t mode;
+  uint8_t charsize;
+} __attribute__((packed)) PSF1_Header;
+
+typedef struct {
+  PSF1_Header *header;
+  void *glyph_buffer;
+} PSF1_Font;
+
+// END
+
 typedef struct {
   BootFramebuffer framebuffer;
   BootMemoryMap memory_map;
+  PSF1_Font font; // read above
   void *rsdp;
   uint64_t *pml4;
   BootRegion kernel;
