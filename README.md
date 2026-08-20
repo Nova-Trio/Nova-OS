@@ -1,2 +1,2 @@
 # Nova-OS
-A x86_64 OS made by the Nova Trio aka MINOHACKER, Vule and Alex aiming for ultra fast speeds and GPU drivers...
+An experimental x86-64 OS aiming for fast speeds and hardware-accelerated interfaces.
