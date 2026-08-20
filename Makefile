@@ -5,6 +5,9 @@ BUILD_DIR ?= build
 INCDIRS := $(shell find $(SRC_DIR) -type d)
 INC_FLAGS := $(addprefix -I, $(INCDIRS))
 
+AS = nasm
+ASFLAGS = -f elf64
+
 EFI_CFLAGS = $(EFI_TARGET) -ffreestanding -fno-stack-protector -fshort-wchar -mno-red-zone -Wall -Wextra -std=c17 -MMD -MP $(INC_FLAGS)
 EFI_LDFLAGS = $(EFI_TARGET) -fuse-ld=lld -nostdlib -Wl,-entry:efi_main -Wl,-subsystem:efi_application
 
@@ -12,12 +15,18 @@ BOOT_SRCS := $(wildcard $(SRC_DIR)/boot/*.c)
 BOOT_OBJS := $(patsubst $(SRC_DIR)/boot/%.c, $(BUILD_DIR)/boot/%.o, $(BOOT_SRCS))
 
 KERNEL_TARGET = -target x86_64-unknown-none-elf
-KERNEL_CFLAGS = $(KERNEL_TARGET) -ffreestanding -fno-stack-protector -fno-pie -fno-pic -mno-red-zone -mno-sse -mcmodel=kernel -Wall -Wextra -std=c17 -MMD -MP $(INC_FLAGS)
+KERNEL_CFLAGS = $(KERNEL_TARGET) -ffreestanding -fno-stack-protector -fno-pie -fno-pic -mno-red-zone -mno-sse -fno-omit-frame-pointer -g -mcmodel=kernel -Wall -Wextra -std=c17 -MMD -MP $(INC_FLAGS)
 KERNEL_LDFLAGS = $(KERNEL_TARGET) -fuse-ld=lld -nostdlib -static -Wl,-T,src/kernel/linker.ld -Wl,-z,max-page-size=0x1000
 KERNEL = kernel.elf
 
-KERNEL_SRCS := $(shell find $(SRC_DIR)/kernel -name '*.c')
-KERNEL_OBJS := $(patsubst $(SRC_DIR)/kernel/%.c, $(BUILD_DIR)/kernel/%.o, $(KERNEL_SRCS))
+KERNEL_C_SRCS := $(shell find $(SRC_DIR)/kernel -name '*.c')
+KERNEL_ASM_SRCS := $(shell find $(SRC_DIR)/kernel -name '*.asm')
+
+KERNEL_C_OBJS := $(patsubst $(SRC_DIR)/kernel/%.c, $(BUILD_DIR)/kernel/%.c.o, $(KERNEL_C_SRCS))
+KERNEL_ASM_OBJS := $(patsubst $(SRC_DIR)/kernel/%.asm, $(BUILD_DIR)/kernel/%.asm.o, $(KERNEL_ASM_SRCS))
+
+KERNEL_OBJS := $(KERNEL_C_OBJS) $(KERNEL_ASM_OBJS)
+
 
 OVMF_PATHS := /usr/share/edk2/x64/OVMF.4m.fd $(wildcard fw/*.fd)
 
@@ -56,7 +65,7 @@ all: $(IMG)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
--include $(BUILD_DIR)/*.d
+-include $(shell find $(BUILD_DIR) -name '*.d' 2>/dev/null)
 
 $(BUILD_DIR)/boot/%.o: $(SRC_DIR)/boot/%.c
 	@mkdir -p $(dir $@)
@@ -65,9 +74,14 @@ $(BUILD_DIR)/boot/%.o: $(SRC_DIR)/boot/%.c
 $(EFI): $(BOOT_OBJS)
 	$(CC) $(EFI_LDFLAGS) $^ -o $@
 
-$(BUILD_DIR)/kernel/%.o: $(SRC_DIR)/kernel/%.c
+$(BUILD_DIR)/kernel/%.c.o: $(SRC_DIR)/kernel/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
+
+
+$(BUILD_DIR)/kernel/%.asm.o: $(SRC_DIR)/kernel/%.asm
+	@mkdir -p $(dir $@)
+	$(AS) $(ASFLAGS) $< -o $@
 
 $(KERNEL): $(KERNEL_OBJS)
 	$(CC) $(KERNEL_LDFLAGS) $^ -o $@
@@ -104,6 +118,7 @@ install: $(EFI) $(KERNEL)
 	sudo mkdir -p $(INSTALL_DIR)
 	sudo cp $(EFI) $(INSTALL_DIR)/$(EFI)
 	sudo cp $(KERNEL) $(INSTALL_DIR)/$(KERNEL)
+	sudo cp zap-light16.psf $(INSTALL_DIR)/zap-light16.psf
 
 run-hw: install
 	sudo efibootmgr -n $(GRUB_BOOTNUM)

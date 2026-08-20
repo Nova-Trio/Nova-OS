@@ -1,5 +1,7 @@
 #include <bootinfo.h>
 #include <con.h>
+#include <gdt.h>
+#include <idt.h>
 
 __attribute__((noreturn)) void _start(BootInfo *boot_info) {
   for (uint32_t i = 0; i < 256; i++) {
@@ -14,11 +16,16 @@ __attribute__((noreturn)) void _start(BootInfo *boot_info) {
     : "rax", "memory"
   );
 
+  gdt_init();
+  idt_init();
+
   console_init(boot_info);
   console_set_color(0x00FFFFFF, 0x00000000);
   console_clear();
 
   kprintf("NovaOS Cros!\n");
+
+  //*(volatile uint32_t *)0x0 = 0x12345678;
 
   for (;;) {
     __asm__ volatile("hlt");
