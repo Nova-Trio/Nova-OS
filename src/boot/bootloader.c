@@ -343,6 +343,9 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
   if (fb.base + fb.size > max_phys) {
     max_phys = fb.base + fb.size;
   }
+  if (max_phys < 0x100000000ULL) {
+    max_phys = 0x100000000ULL;
+  }
 
   EFI_PHYSICAL_ADDRESS pml4_phys = 0;
   s = SystemTable->BootServices->AllocatePages(AllocateAnyPages, EfiLoaderData, 1, &pml4_phys);
@@ -416,22 +419,27 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
   uint32_t desc_ver = 0;
   VOID *mmap = NULL;
 
+  SystemTable->BootServices->GetMemoryMap(&map_size, NULL, &map_key, &desc_size, &desc_ver);
+  map_size += 16 * desc_size;
+
+  s = SystemTable->BootServices->AllocatePool(EfiLoaderData, map_size, &mmap);
+  if (s != EFI_SUCCESS) return s;
+
   for (;;) {
-    map_size = 0;
-    SystemTable->BootServices->GetMemoryMap(&map_size, NULL, &map_key, &desc_size, &desc_ver);
-    map_size += 8 * desc_size;
-
-    s = SystemTable->BootServices->AllocatePool(EfiLoaderData, map_size, &mmap);
-    if (s != EFI_SUCCESS) return s;
-
-    s = SystemTable->BootServices->GetMemoryMap(&map_size, mmap, &map_key, &desc_size, &desc_ver);
+    UINTN actual_size = map_size;
+    s = SystemTable->BootServices->GetMemoryMap(&actual_size, mmap, &map_key, &desc_size, &desc_ver);
     if (s != EFI_SUCCESS) {
       SystemTable->BootServices->FreePool(mmap);
-      return s;
+      map_size = 0;
+      SystemTable->BootServices->GetMemoryMap(&map_size, NULL, &map_key, &desc_size, &desc_ver);
+      map_size += 16 * desc_size;
+      s = SystemTable->BootServices->AllocatePool(EfiLoaderData, map_size, &mmap);
+      if (s != EFI_SUCCESS) return s;
+      continue;
     }
 
     boot_info->memory_map.map = (VOID *)((uint64_t)mmap + HHDM_BASE);
-    boot_info->memory_map.size = map_size;
+    boot_info->memory_map.size = actual_size;
     boot_info->memory_map.descriptor_size = desc_size;
     boot_info->memory_map.descriptor_version = desc_ver;
 
@@ -439,8 +447,6 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     if (s == EFI_SUCCESS) {
       break;
     }
-
-    SystemTable->BootServices->FreePool(mmap);
   }
 
   uint64_t boot_info_virt = boot_info_phys + HHDM_BASE;
