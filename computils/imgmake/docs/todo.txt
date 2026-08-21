@@ -1,5 +1,8 @@
-- Gotta add proper GUID constructors: one takes raw integers, one takes string,
-    one takes nothing and randomly generates the GUID
-- Gotta add FAT32 file system support for the actual partitions
+
+- Add FAT32 file system
+- Add argument handling
+- Add actually writing img files
+- Add opening img files and editing them
+
 - Usage.txt is unfinished
-- Gotta add argument handling
+- Lots of testing
