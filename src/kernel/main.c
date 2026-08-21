@@ -1,5 +1,5 @@
 #include <bootinfo.h>
-#include <con.h>
+#include <console.h>
 #include <gdt.h>
 #include <idt.h>
 #include <pmm.h>
