@@ -105,6 +105,23 @@ typedef struct {
   AcpiGas x_gpe1_blk;
 } __attribute__((packed)) AcpiFadt;
 
+typedef struct {
+  AcpiSdtHeader header;
+  uint32_t lapic_address;
+  uint32_t flags;
+} __attribute__((packed)) AcpiMadt;
+
+typedef struct {
+  uint8_t type;
+  uint8_t length;
+} __attribute__((packed)) AcpiMadtRecordHeader;
+
+typedef struct {
+  AcpiMadtRecordHeader header;
+  uint16_t reserved;
+  uint64_t phys_address;
+} __attribute__((packed)) AcpiMadtLapicAddressOverride;
+
 void acpi_init(void *rsdp_phys);
 AcpiSdtHeader *acpi_find_table(const char *signature, size_t index);
 void acpi_dump_tables(void);
