@@ -11,8 +11,8 @@ ASFLAGS = -f elf64
 EFI_CFLAGS = $(EFI_TARGET) -ffreestanding -fno-stack-protector -fshort-wchar -mno-red-zone -Wall -Wextra -std=c17 -MMD -MP $(INC_FLAGS)
 EFI_LDFLAGS = $(EFI_TARGET) -fuse-ld=lld -nostdlib -Wl,-entry:efi_main -Wl,-subsystem:efi_application
 
-BOOT_SRCS := $(wildcard $(SRC_DIR)/boot/*.c)
-BOOT_OBJS := $(patsubst $(SRC_DIR)/boot/%.c, $(BUILD_DIR)/boot/%.o, $(BOOT_SRCS))
+BOOT_SRCS := $(wildcard $(SRC_DIR)/boot/uefi/*.c)
+BOOT_OBJS := $(patsubst $(SRC_DIR)/boot/uefi/%.c, $(BUILD_DIR)/boot/uefi/%.o, $(BOOT_SRCS))
 
 KERNEL_TARGET = -target x86_64-unknown-none-elf
 KERNEL_CFLAGS = $(KERNEL_TARGET) -ffreestanding -fno-stack-protector -fno-pie -fno-pic -mno-red-zone -mno-sse -fno-omit-frame-pointer -g -mcmodel=kernel -Wall -Wextra -std=c17 -MMD -MP $(INC_FLAGS)
@@ -67,7 +67,7 @@ $(BUILD_DIR):
 
 -include $(shell find $(BUILD_DIR) -name '*.d' 2>/dev/null)
 
-$(BUILD_DIR)/boot/%.o: $(SRC_DIR)/boot/%.c
+$(BUILD_DIR)/boot/uefi/%.o: $(SRC_DIR)/boot/uefi/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(EFI_CFLAGS) -c $< -o $@
 
