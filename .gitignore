@@ -1,7 +1,11 @@
-*.EFI
 build/
 compile_commands.json
-*.img
-*.fd
+
+*.o
+*.EFI
 *.elf
 *.exe
+
+*.fd
+*.img
+*.vhd
