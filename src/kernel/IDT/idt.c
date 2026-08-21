@@ -1,6 +1,6 @@
 #include "idt.h"
 #include <gdt.h>
-#include <con.h>
+#include <console.h>
 
 
 static IdtEntry g_idt[IDT_ENTRIES_COUNT];
