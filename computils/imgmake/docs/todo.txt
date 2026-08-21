@@ -1,8 +1,0 @@
-
-- Add FAT32 file system
-- Add argument handling
-- Add actually writing img files
-- Add opening img files and editing them
-
-- Usage.txt is unfinished
-- Lots of testing
