@@ -1,7 +1,7 @@
 #include "hpet.h"
 #include "acpi.h"
 #include "vmm.h"
-#include "con.h"
+#include "console.h"
 
 #define HPET_REG_CAPABILITIES 0x000
 #define HPET_REG_CONFIGURATION 0x010

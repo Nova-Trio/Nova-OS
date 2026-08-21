@@ -1,4 +1,4 @@
-#include "con.h"
+#include "console.h"
 
 #define FLAG_LEFT (1 << 0)
 #define FLAG_PLUS (1 << 1)
