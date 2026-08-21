@@ -3,7 +3,7 @@
 #include "hpet.h"
 #include <vmm.h>
 #include <idt.h>
-#include <con.h>
+#include <console.h>
 
 #define IA32_APIC_BASE_MSR 0x1B
 #define IA32_APIC_BASE_MSR_ENABLE (1ULL << 11)
