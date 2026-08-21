@@ -217,3 +217,23 @@ __attribute__((noreturn)) void acpi_reboot(void) {
     __asm__ volatile("cli; hlt");
   }
 }
+
+const AcpiMcfgAllocation *acpi_get_mcfg_allocations(size_t *count) {
+  if (count) {
+    *count = 0;
+  }
+
+  AcpiMcfg *mcfg = (AcpiMcfg *)acpi_find_table("MCFG", 0);
+  if (!mcfg || mcfg->header.length < sizeof(AcpiMcfg)) {
+    return NULL;
+  }
+
+  size_t alloc_bytes = mcfg->header.length - sizeof(AcpiMcfg);
+  size_t num_allocs = alloc_bytes / sizeof(AcpiMcfgAllocation);
+
+  if (count) {
+    *count = num_allocs;
+  }
+
+  return mcfg->allocations;
+}

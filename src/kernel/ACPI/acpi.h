@@ -122,8 +122,25 @@ typedef struct {
   uint64_t phys_address;
 } __attribute__((packed)) AcpiMadtLapicAddressOverride;
 
+typedef struct {
+  uint64_t base_address;
+  uint16_t segment_group;
+  uint8_t start_bus;
+  uint8_t end_bus;
+  uint32_t reserved;
+} __attribute__((packed)) AcpiMcfgAllocation;
+
+typedef struct {
+  AcpiSdtHeader header;
+  uint64_t reserved;
+  AcpiMcfgAllocation allocations[];
+} __attribute__((packed)) AcpiMcfg;
+
 void acpi_init(void *rsdp_phys);
 AcpiSdtHeader *acpi_find_table(const char *signature, size_t index);
+const AcpiMcfgAllocation *acpi_get_mcfg_allocations(size_t *count);
+
 void acpi_dump_tables(void);
+
 
 void acpi_reboot(void) __attribute__((noreturn));

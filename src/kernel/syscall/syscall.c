@@ -3,7 +3,7 @@
 #include <gdt.h>
 #include <pmm.h>
 #include <vmm.h>
-#include <con.h>
+#include <console.h>
 
 #define MSR_EFER 0xC0000080u
 #define MSR_STAR 0xC0000081u

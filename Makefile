@@ -15,7 +15,7 @@ BOOT_SRCS := $(wildcard $(SRC_DIR)/boot/uefi/*.c)
 BOOT_OBJS := $(patsubst $(SRC_DIR)/boot/uefi/%.c, $(BUILD_DIR)/boot/uefi/%.o, $(BOOT_SRCS))
 
 KERNEL_TARGET = -target x86_64-unknown-none-elf
-KERNEL_CFLAGS = $(KERNEL_TARGET) -ffreestanding -fno-stack-protector -fno-pie -fno-pic -mno-red-zone -mno-sse -fno-omit-frame-pointer -g -mcmodel=kernel -Wall -Wextra -std=c17 -MMD -MP $(INC_FLAGS)
+KERNEL_CFLAGS = $(KERNEL_TARGET) -ffreestanding -fno-stack-protector -fno-pie -fno-pic -mno-red-zone -fno-builtin -mno-sse -fno-omit-frame-pointer -g -mcmodel=kernel -Wall -Wextra -std=c17 -MMD -MP $(INC_FLAGS)
 KERNEL_LDFLAGS = $(KERNEL_TARGET) -fuse-ld=lld -nostdlib -static -Wl,-T,src/kernel/linker.ld -Wl,-z,max-page-size=0x1000
 KERNEL = kernel.elf
 
@@ -104,7 +104,7 @@ else
 endif
 
 run: $(IMG)
-	qemu-system-x86_64 -bios $(OVMF) -drive file=$(IMG),format=raw $(QEMU_CPU) $(QEMU_ACCEL) -serial stdio
+	qemu-system-x86_64 -bios $(OVMF) -drive file=$(IMG),format=raw $(QEMU_CPU) $(QEMU_ACCEL) -M q35
 	reset
 
 run-debug: $(IMG)

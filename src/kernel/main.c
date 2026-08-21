@@ -8,6 +8,7 @@
 #include <acpi.h>
 #include <hpet.h>
 #include <lapic.h>
+#include <pcie.h>
 
 extern void syscall_init(void);
 extern void syscall_test(void);
@@ -19,6 +20,7 @@ static void timer_interrupt_handler(Registers *regs) {
   g_timer_ticks++;
   lapic_eoi();
 }
+
 
 __attribute__((noreturn)) void _start(BootInfo *boot_info) {
   for (uint32_t i = 0; i < 256; i++) {
@@ -56,9 +58,15 @@ __attribute__((noreturn)) void _start(BootInfo *boot_info) {
 
   __asm__ volatile("sti");
 
+  pcie_init();
+  pcie_dump_devices();
+
+
   syscall_init();
   kprintf("syscall test\n");
   syscall_test();
+
+
 
 
   //*(volatile uint32_t *)0x0 = 0x12345678;
