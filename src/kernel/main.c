@@ -9,6 +9,9 @@
 #include <hpet.h>
 #include <lapic.h>
 
+extern void syscall_init(void);
+extern void syscall_test(void);
+
 static volatile uint64_t g_timer_ticks = 0;
 
 static void timer_interrupt_handler(Registers *regs) {
@@ -53,8 +56,9 @@ __attribute__((noreturn)) void _start(BootInfo *boot_info) {
 
   __asm__ volatile("sti");
 
-
-
+  syscall_init();
+  kprintf("syscall test\n");
+  syscall_test();
 
 
   //*(volatile uint32_t *)0x0 = 0x12345678;
