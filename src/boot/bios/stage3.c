@@ -1,3 +1,5 @@
+// this is a prototype for ELf plz delete this
+
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
