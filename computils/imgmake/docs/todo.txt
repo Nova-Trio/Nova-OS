@@ -1,5 +1,0 @@
-- Gotta add proper GUID constructors: one takes raw integers, one takes string,
-    one takes nothing and randomly generates the GUID
-- Gotta add FAT32 file system support for the actual partitions
-- Usage.txt is unfinished
-- Gotta add argument handling
