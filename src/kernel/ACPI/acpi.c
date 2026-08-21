@@ -2,7 +2,7 @@
 #include <vmm.h>
 #include <pmm.h>
 #include <heap.h>
-#include <con.h>
+#include <console.h>
 
 typedef struct {
   uint64_t phys_addr;
