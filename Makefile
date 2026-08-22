@@ -104,11 +104,11 @@ else
 endif
 
 run: $(IMG)
-	qemu-system-x86_64 -bios $(OVMF) -drive file=$(IMG),format=raw $(QEMU_CPU) $(QEMU_ACCEL) -M q35
+	qemu-system-x86_64 -bios $(OVMF) -drive file=$(IMG),format=raw,if=none,id=nvm0 -device nvme,serial=1234ffff,drive=nvm0 $(QEMU_CPU) $(QEMU_ACCEL) -M q35
 	reset
 
 run-debug: $(IMG)
-	qemu-system-x86_64 -bios $(OVMF) -drive file=$(IMG),format=raw $(QEMU_CPU) $(QEMU_ACCEL) -s -S -serial stdio
+	qemu-system-x86_64 -bios $(OVMF) -drive file=$(IMG),format=raw,if=none,id=nvm0 -device nvme,serial=1234ffff,drive=nvm0 $(QEMU_CPU) $(QEMU_ACCEL) -s -S -serial stdio
 	reset
 
 clean:

@@ -9,6 +9,8 @@
 #include <hpet.h>
 #include <lapic.h>
 #include <pcie.h>
+#include <nvme.h>
+#include <string.h>
 
 extern void syscall_init(void);
 extern void syscall_test(void);
@@ -60,6 +62,9 @@ __attribute__((noreturn)) void _start(BootInfo *boot_info) {
 
   pcie_init();
   pcie_dump_devices();
+
+  nvme_init();
+
 
 
   syscall_init();
