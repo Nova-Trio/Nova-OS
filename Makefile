@@ -113,6 +113,10 @@ run-debug: $(IMG)
 	qemu-system-x86_64 -bios $(OVMF) -drive file=$(IMG),format=raw,if=none,id=nvm0 -device nvme,serial=1234ffff,drive=nvm0 $(QEMU_CPU) $(QEMU_ACCEL) -s -S -serial stdio
 	reset
 
+
+run-vfio: $(IMG)
+	sudo qemu-system-x86_64 -bios $(OVMF) -drive file=$(IMG),format=raw,if=none,id=nvm0 -device nvme,serial=1234ffff,drive=nvm0 $(QEMU_CPU) $(QEMU_ACCEL) -M q35 -device pcie-root-port,id=root_port1,chassis=1,slot=1,bus=pcie.0 -device vfio-pci,host=01:00.0,bus=root_port1,multifunction=on
+	reset
 clean:
 	rm -rf $(BUILD_DIR) $(EFI) $(KERNEL) $(IMG)
 
@@ -121,7 +125,6 @@ install: $(EFI) $(KERNEL)
 	sudo cp $(EFI) $(INSTALL_DIR)/$(EFI)
 	sudo cp $(KERNEL) $(INSTALL_DIR)/$(KERNEL)
 	sudo cp zap-light16.psf $(INSTALL_DIR)/zap-light16.psf
-
 run-hw: install
 	sudo efibootmgr -n $(GRUB_BOOTNUM)
 	sudo grub-reboot "nova_os"
