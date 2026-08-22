@@ -95,12 +95,14 @@ ifneq ($(HAVE_PARTED),)
 	mcopy -i $@@@1M $(EFI) ::/EFI/BOOT/BOOTX64.EFI
 	mcopy -i $@@@1M $(KERNEL) ::/EFI/novaos/$(KERNEL)
 	mcopy -i $@@@1M zap-light16.psf ::/EFI/novaos/zap-light16.psf
+	mcopy -i $@@@1M reallylongfilenamecros.txt ::/EFI/novaos/reallylongfilenamecros.txt
 else
 	mformat -i $@ -F ::
 	mmd -i $@ ::/EFI ::/EFI/BOOT ::/EFI/novaos
 	mcopy -i $@ $(EFI) ::/EFI/BOOT/BOOTX64.EFI
 	mcopy -i $@ $(KERNEL) ::/EFI/novaos/$(KERNEL)
 	mcopy -i $@ zap-light16.psf ::/EFI/novaos/zap-light16.psf
+	mcopy -i $@ reallylongfilenamecros.txt ::/EFI/novaos/reallylongfilenamecros.txt
 endif
 
 run: $(IMG)

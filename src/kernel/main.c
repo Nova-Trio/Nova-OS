@@ -11,6 +11,8 @@
 #include <pcie.h>
 #include <nvme.h>
 #include <string.h>
+#include <gpt.h>
+#include <fat32.h>
 
 extern void syscall_init(void);
 extern void syscall_test(void);
@@ -23,6 +25,14 @@ static void timer_interrupt_handler(Registers *regs) {
   lapic_eoi();
 }
 
+static void print_dir_entry(const Fat32DirEntry *entry, void *context) {
+  (void)context;
+  if (entry->is_directory) {
+    kprintf("[DIR]  %s\n", entry->name);
+  } else {
+    kprintf("[FILE] %s (%u bytes)\n", entry->name, entry->file_size);
+  }
+}
 
 __attribute__((noreturn)) void _start(BootInfo *boot_info) {
   for (uint32_t i = 0; i < 256; i++) {
@@ -64,7 +74,9 @@ __attribute__((noreturn)) void _start(BootInfo *boot_info) {
   pcie_dump_devices();
 
   nvme_init();
+  fs_init();
 
+  fs_list_dir("/EFI/novaos", print_dir_entry, NULL);
 
 
   syscall_init();
