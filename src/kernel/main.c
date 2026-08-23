@@ -81,18 +81,14 @@ __attribute__((noreturn)) void _start(BootInfo *boot_info) {
 
   module_init();
 
-  void *test_driver_data = NULL;
-  size_t test_driver_size = 0;
-  if (fs_read_file("/nova/drivers/test.elf", &test_driver_data, &test_driver_size) == 0 && test_driver_data) {
-    Module *test_mod = module_load("test", test_driver_data, test_driver_size);
-    if (test_mod) {
-      module_unload(test_mod);
-    }
-    kfree(test_driver_data);
+  void *nv_driver_data = NULL;
+  size_t nv_driver_size = 0;
+  if (fs_read_file("/nova/drivers/nvidia.elf", &nv_driver_data, &nv_driver_size) == 0 && nv_driver_data) {
+    module_load("nvidia", nv_driver_data, nv_driver_size);
+    kfree(nv_driver_data);
   } else {
-    kprintf("Could not read /nova/drivers/test.elf\n");
+    kprintf("Could not read /nova/drivers/nvidia.elf\n");
   }
-
 
   syscall_init();
   kprintf("syscall test\n");

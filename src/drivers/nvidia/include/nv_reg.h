@@ -1,0 +1,15 @@
+#pragma once
+#include <stdint.h>
+
+#define NV_PMC_BOOT_0 0x00000000 // RO, gives us basic revision about the gpu
+
+#define NV_PMC_BOOT_0_MINOR_REV_MASK 0x0000000FU
+#define NV_PMC_BOOT_0_MINOR_REV_SHIFT 0
+#define NV_PMC_BOOT_0_MAJOR_REV_MASK 0x000000F0U
+#define NV_PMC_BOOT_0_MAJOR_REV_SHIFT 4
+#define NV_PMC_BOOT_0_CHIPSET_MASK 0x1FF00000U
+#define NV_PMC_BOOT_0_CHIPSET_SHIFT 20
+
+// Ranges for nv chipsets
+#define NV_CHIPSET_TURING_MIN 0x160
+#define NV_CHIPSET_TURING_MAX 0x168
