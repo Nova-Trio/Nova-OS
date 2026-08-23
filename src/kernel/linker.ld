@@ -12,6 +12,10 @@ SECTIONS {
 
   .rodata ALIGN(4K) : {
     *(.rodata .rodata.*)
+    . = ALIGN(8);
+    __start_kernel_syms = .;
+    KEEP(*(kernel_syms))
+    __stop_kernel_syms = .;
   }
 
   .data ALIGN(4K) : {

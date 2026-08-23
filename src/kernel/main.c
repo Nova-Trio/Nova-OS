@@ -13,6 +13,7 @@
 #include <string.h>
 #include <gpt.h>
 #include <fat32.h>
+#include <module.h>
 
 extern void syscall_init(void);
 extern void syscall_test(void);
@@ -77,6 +78,20 @@ __attribute__((noreturn)) void _start(BootInfo *boot_info) {
   fs_init();
 
   fs_list_dir("/EFI/novaos", print_dir_entry, NULL);
+
+  module_init();
+
+  void *test_driver_data = NULL;
+  size_t test_driver_size = 0;
+  if (fs_read_file("/nova/drivers/test.elf", &test_driver_data, &test_driver_size) == 0 && test_driver_data) {
+    Module *test_mod = module_load("test", test_driver_data, test_driver_size);
+    if (test_mod) {
+      module_unload(test_mod);
+    }
+    kfree(test_driver_data);
+  } else {
+    kprintf("Could not read /nova/drivers/test.elf\n");
+  }
 
 
   syscall_init();
