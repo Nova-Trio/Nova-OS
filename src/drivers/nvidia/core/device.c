@@ -151,6 +151,9 @@ void nv_device_remove_all(void) {
     if (curr->ops && curr->ops->cleanup) {
       curr->ops->cleanup(curr);
     }
+    if (curr->bar1_inst.phys_addr) {
+      nv_dma_free(&curr->bar1_inst);
+    }
     nv_unmap_bar(&curr->bar3);
     nv_unmap_bar(&curr->bar1);
     nv_unmap_bar(&curr->bar0);
@@ -164,27 +167,64 @@ void nv_device_remove_all(void) {
 
 static void nv_bus_wait_bar1_bind(const NvDevice *dev) {
   for (uint32_t i = 0; i < 1000000; i++) {
-    uint32_t status = nv_rd32(dev, NV_PBUS_BIND_STATUS);
-    if ((status & 0x1) == 0) {
+    if ((nv_rd32(dev, NV_PRAMIN_BAR1_STATUS) & NV_PRAMIN_BAR1_STATUS_BUSY) == 0) {
       break;
     }
     __asm__ volatile("pause");
   }
 }
 
-int nv_bus_bind_bar1_vmm(const NvDevice *dev, const NvVmm *vmm) {
+#define NV_PBUS_BAR0_WINDOW 0x00001700
+#define NV_PRAMIN_OFFSET    0x00700000
+
+int nv_bus_bind_bar1_vmm(NvDevice *dev, const NvVmm *vmm) {
   if (!dev || !dev->bar0.virt_addr || !vmm || !vmm->pdb.phys_addr) {
     return -1;
   }
 
-  uint32_t ptr_val = (uint32_t)(vmm->pdb.phys_addr >> NV_PBUS_BAR1_BLOCK_PTR_ALIGN_SHIFT);
-  uint32_t val = (NV_PBUS_BAR1_BLOCK_MODE_VIRTUAL << NV_PBUS_BAR1_BLOCK_MODE_SHIFT) |
-  (NV_PBUS_BAR1_BLOCK_TARGET_SYS_MEM_COHERENT << NV_PBUS_BAR1_BLOCK_TARGET_SHIFT) |
-  (ptr_val & NV_PBUS_BAR1_BLOCK_PTR_MASK);
+  nv_wr32(dev, NV_PBUS_BAR0_WINDOW, 0x00000000);
 
-  nv_wr32(dev, NV_PBUS_BAR1_BLOCK, val);
+  nv_wr32(dev, NV_PRAMIN_BAR1_BLOCK, nv_rd32(dev, NV_PRAMIN_BAR1_BLOCK) & ~NV_PRAMIN_BAR1_BLOCK_ENABLE);
   nv_dma_wmb();
   nv_bus_wait_bar1_bind(dev);
+
+  uint64_t base = BIT_ULL(10) /* VER2 */ | BIT_ULL(11) /* 64KiB */ | (2ULL << 0) /* HOST */ | BIT_ULL(2) /* VOL */;
+  base |= vmm->pdb.phys_addr;
+
+  uint32_t data0 = (uint32_t)(base & 0xFFFFFFFFU);
+  uint32_t data1 = (uint32_t)(base >> 32);
+  uint64_t limit = dev->bar1.size ? (dev->bar1.size - 1) : 0x0FFFFFFFULL;
+
+  volatile uint32_t *inst = (volatile uint32_t *)((uint8_t *)dev->bar0.virt_addr + NV_PRAMIN_OFFSET);
+  memset((void *)inst, 0, 0x1000);
+
+  inst[0x200 / 4] = data0;
+  inst[0x204 / 4] = data1;
+  inst[0x208 / 4] = (uint32_t)(limit & 0xFFFFFFFFU);
+  inst[0x20c / 4] = (uint32_t)(limit >> 32);
+  inst[0x21c / 4] = 0x00000000;
+  inst[0x298 / 4] = 0x00000001; // Lower 32 bits mask
+  inst[0x29c / 4] = 0x00000000; // Upper 32 bits mask
+
+  for (size_t i = 0; i < 64; i++) {
+    if (i == 0) {
+      inst[(0x2a0 + i * 0x10) / 4] = data0;
+      inst[(0x2a4 + i * 0x10) / 4] = data1;
+    } else {
+      inst[(0x2a0 + i * 0x10) / 4] = 0x00000001;
+      inst[(0x2a4 + i * 0x10) / 4] = 0x00000001;
+    }
+    inst[(0x2a8 + i * 0x10) / 4] = 0x00000000;
+  }
+
+  nv_dma_wmb();
+
+  nv_wr32(dev, NV_PRAMIN_BAR1_BLOCK, NV_PRAMIN_BAR1_BLOCK_ENABLE | 0x00000000);
+  nv_dma_wmb();
+
+  nv_bus_wait_bar1_bind(dev);
+
+  nv_mmu_tlb_invalidate(dev, vmm->pdb.phys_addr);
   return 0;
 }
 
@@ -204,22 +244,30 @@ int nv_bus_bind_bar1_phys(const NvDevice *dev, uint64_t phys_addr, uint32_t targ
   return 0;
 }
 
-
+// Again yall can guard the krpintfs
 void nv_mmu_tlb_invalidate(const NvDevice *dev, uint64_t pdb_phys) {
   if (!dev || !dev->bar0.virt_addr) {
     return;
   }
 
-  // Wait for free flush slot
-  for (uint32_t i = 0; i < 1000000; i++) {
-    if ((nv_rd32(dev, NV_PFB_PRI_MMU_STATUS) & 0x00FF0000U) != 0) {
-      break;
-    }
-    __asm__ volatile("pause");
-  }
+  kprintf("[NV/MMU] TLB invalidate: PDB=0x%016llx\n", pdb_phys);
 
-  // Program target PDB frame and trigger flush
-  nv_wr32(dev, NV_PFB_PRI_MMU_INVALIDATE_PDB, (uint32_t)(pdb_phys >> 12));
+  nv_wr32(dev, NV_PFB_PRI_MMU_INVALIDATE_PDB_LO, (uint32_t)(pdb_phys >> 8));
+  nv_wr32(dev, NV_PFB_PRI_MMU_INVALIDATE_PDB_HI, (uint32_t)(pdb_phys >> 40));
   nv_wr32(dev, NV_PFB_PRI_MMU_INVALIDATE_CMD, NV_PFB_PRI_MMU_INVALIDATE_TRIGGER | NV_PFB_PRI_MMU_INVALIDATE_ALL);
   nv_dma_wmb();
+
+  uint32_t timeout = 1000000;
+  uint32_t status;
+  do {
+    status = nv_rd32(dev, NV_PFB_PRI_MMU_INVALIDATE_CMD);
+    if ((status & NV_PFB_PRI_MMU_INVALIDATE_TRIGGER) == 0) {
+      kprintf("[NV/MMU] TLB invalidate succeeded (status=0x%08x)\n", status);
+      return;
+    }
+    __asm__ volatile("pause");
+  } while (--timeout > 0);
+
+  // Timeout
+  kprintf("[NV/MMU] TLB invalidate TIMEOUT! last status=0x%08x\n", status);
 }

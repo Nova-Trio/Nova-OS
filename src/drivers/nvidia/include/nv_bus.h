@@ -6,6 +6,11 @@
 // Scratch storage for anything with PMU or GSP, i depending on chip
 #define NV_PBUS_SW_SCRATCH(i) (0x00001400 + (i) * 4)
 
+#define NV_PRAMIN_BAR1_BLOCK 0x00B80F40
+#define NV_PRAMIN_BAR1_STATUS 0x00B80F50
+#define NV_PRAMIN_BAR1_STATUS_BUSY 0x00000003U
+#define NV_PRAMIN_BAR1_BLOCK_ENABLE 0x80000000U
+
 /* BAR1 aperture ctrl registers
  * [31]    : Mode (0 = Phys 1 = Virt)
  * [29:28] : Target aperture
@@ -43,5 +48,5 @@
 #define NV_PBUS_BAR2_BLOCK_PTR_SHIFT 0
 #define NV_PBUS_BAR2_BLOCK_PTR_ALIGN_SHIFT 12
 
-int nv_bus_bind_bar1_vmm(const NvDevice *dev, const NvVmm *vmm);
+int nv_bus_bind_bar1_vmm(NvDevice *dev, const NvVmm *vmm);
 int nv_bus_bind_bar1_phys(const NvDevice *dev, uint64_t phys_addr, uint32_t target);

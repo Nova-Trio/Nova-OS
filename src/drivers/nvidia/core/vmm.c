@@ -33,13 +33,12 @@ static void remove_table_page(NvVmm *vmm, uint64_t phys_addr) {
  *  If the parent_entry already points to a table we return its virtual addr, otherwise we allocate a new zeroed page
 */
 static NvMmuEntry *get_or_alloc_table(NvVmm *vmm, NvMmuEntry *parent_entry, NvMmuAperture aperture) {
-  // Already present? Just map it.
-  if ((parent_entry->word0 & 0x1 /*TU102_PDE_VALID_TRUE*/) != 0) {
-    uint64_t phys = ((uint64_t)(parent_entry->word0 >> 4)) << 12;
+  uint64_t raw_entry = ((uint64_t)parent_entry->word1 << 32) | parent_entry->word0;
+  if ((raw_entry & 0x6ULL) != 0) {
+    uint64_t phys = (raw_entry & ~0xFULL) << 4;
     return (NvMmuEntry *)(phys + HHDM_BASE);
   }
 
-  // Allocate a physical page for the new table
   void *frame = pmm_alloc_frame();
   if (!frame) {
     return NULL;
@@ -49,14 +48,12 @@ static NvMmuEntry *get_or_alloc_table(NvVmm *vmm, NvMmuEntry *parent_entry, NvMm
   uint64_t virt = phys + HHDM_BASE;
   memset((void *)virt, 0, NV_VMM_PAGE_SIZE);
 
-  // Track this page so we can free it on destroy
   NvTablePage *node = (NvTablePage *)kmalloc(sizeof(NvTablePage));
   if (node) {
     node->phys_addr = phys;
     node->next = vmm->table_list;
     vmm->table_list = node;
   }
-  // if kmalloc fails this page will be used but not freed, fix soon trust
 
   *parent_entry = turing_mmu_encode_pde(phys, aperture);
   return (NvMmuEntry *)virt;
@@ -221,6 +218,9 @@ void nv_vmm_free_va(NvVmm *vmm, uint64_t gpu_va, size_t size) {
   insert_free_range(vmm, gpu_va, aligned_size);
 }
 
+/*  Map a 4KB‑aligned GPU VA range to physical memory
+ *  0 on success, -1 on failure
+*/
 int nv_vmm_map(NvVmm *vmm, uint64_t gpu_va, uint64_t phys_addr, size_t size, NvMmuAperture aperture, int read_only, uint8_t kind) {
   if (!vmm || !vmm->pdb.virt_addr || size == 0) {
     return -1;
@@ -231,98 +231,120 @@ int nv_vmm_map(NvVmm *vmm, uint64_t gpu_va, uint64_t phys_addr, size_t size, NvM
   }
 
   size_t page_count = (size + NV_VMM_PAGE_SIZE - 1) / NV_VMM_PAGE_SIZE;
-  NvMmuEntry *pml4 = (NvMmuEntry *)vmm->pdb.virt_addr;
+  NvMmuEntry *pde4 = (NvMmuEntry *)vmm->pdb.virt_addr;
 
   for (size_t i = 0; i < page_count; i++) {
     uint64_t curr_va = gpu_va + (i * NV_VMM_PAGE_SIZE);
     uint64_t curr_phys = phys_addr + (i * NV_VMM_PAGE_SIZE);
 
-    // 4 level paging
-    size_t pml4_idx = (curr_va >> 39) & 0x1FF;
-    size_t pdpt_idx = (curr_va >> 30) & 0x1FF;
-    size_t pd_idx = (curr_va >> 21) & 0x1FF;
-    size_t pt_idx = (curr_va >> 12) & 0x1FF;
+    // 48bit VA
+    size_t pde4_idx = (curr_va >> 47) & 0x3;
+    size_t pde3_idx = (curr_va >> 38) & 0x1FF;
+    size_t pde2_idx = (curr_va >> 29) & 0x1FF;
+    size_t pde1_idx = (curr_va >> 21) & 0xFF;
+    size_t pte_idx  = (curr_va >> 12) & 0x1FF;
 
-    NvMmuEntry *pdpt = get_or_alloc_table(vmm, &pml4[pml4_idx], NV_MMU_APERTURE_SYS_MEM_COHERENT);
-    if (!pdpt) {
+    NvMmuEntry *pde3 = get_or_alloc_table(vmm, &pde4[pde4_idx], NV_MMU_APERTURE_SYS_MEM_COHERENT);
+    if (!pde3) {
       return -1;
     }
 
-    NvMmuEntry *pd = get_or_alloc_table(vmm, &pdpt[pdpt_idx], NV_MMU_APERTURE_SYS_MEM_COHERENT);
-    if (!pd) {
+    NvMmuEntry *pde2 = get_or_alloc_table(vmm, &pde3[pde3_idx], NV_MMU_APERTURE_SYS_MEM_COHERENT);
+    if (!pde2) {
       return -1;
     }
 
-    NvMmuEntry *pt = get_or_alloc_table(vmm, &pd[pd_idx], NV_MMU_APERTURE_SYS_MEM_COHERENT);
+    NvMmuEntry *pde1 = get_or_alloc_table(vmm, &pde2[pde2_idx], NV_MMU_APERTURE_SYS_MEM_COHERENT);
+    if (!pde1) {
+      return -1;
+    }
+
+    // +0: Large Page Table (64KB) PDE
+    // +8: Small Page Table (4KB) PDE
+    NvMmuEntry *pd0_spt_entry = (NvMmuEntry *)((uint8_t *)pde1 + (pde1_idx * 16) + 8);
+    NvMmuEntry *pt = get_or_alloc_table(vmm, pd0_spt_entry, NV_MMU_APERTURE_SYS_MEM_COHERENT);
     if (!pt) {
       return -1;
     }
 
-    pt[pt_idx] = turing_mmu_encode_pte(curr_phys, aperture, read_only, kind);
+    pt[pte_idx] = turing_mmu_encode_pte(curr_phys, aperture, read_only, kind);
   }
 
-  // Ensure PTEs are written to memory before the GPU sees them
   nv_dma_wmb();
   return 0;
 }
 
+/*  Unmap 4KB pages from GPU VA space */
 int nv_vmm_unmap(NvVmm *vmm, uint64_t gpu_va, size_t size) {
   if (!vmm || !vmm->pdb.virt_addr || size == 0) {
     return -1;
   }
 
   size_t page_count = (size + NV_VMM_PAGE_SIZE - 1) / NV_VMM_PAGE_SIZE;
-  NvMmuEntry *pml4 = (NvMmuEntry *)vmm->pdb.virt_addr;
+  NvMmuEntry *pde4 = (NvMmuEntry *)vmm->pdb.virt_addr;
 
   for (size_t i = 0; i < page_count; i++) {
     uint64_t curr_va = gpu_va + (i * NV_VMM_PAGE_SIZE);
 
-    size_t pml4_idx = (curr_va >> 39) & 0x1FF;
-    size_t pdpt_idx = (curr_va >> 30) & 0x1FF;
-    size_t pd_idx   = (curr_va >> 21) & 0x1FF;
-    size_t pt_idx   = (curr_va >> 12) & 0x1FF;
+    size_t pde4_idx = (curr_va >> 47) & 0x3;
+    size_t pde3_idx = (curr_va >> 38) & 0x1FF;
+    size_t pde2_idx = (curr_va >> 29) & 0x1FF;
+    size_t pde1_idx = (curr_va >> 21) & 0xFF; // 256 entries
+    size_t pte_idx = (curr_va >> 12) & 0x1FF;
 
-    // If any level is missing, skip this page
-    if ((pml4[pml4_idx].word0 & 0x1) == 0) {
+    uint64_t raw_pde4 = ((uint64_t)pde4[pde4_idx].word1 << 32) | pde4[pde4_idx].word0;
+    if ((raw_pde4 & 0x6ULL) == 0) {
       continue;
     }
 
-    uint64_t pdpt_phys = ((uint64_t)(pml4[pml4_idx].word0 >> 4)) << 12;
-    NvMmuEntry *pdpt = (NvMmuEntry *)(pdpt_phys + HHDM_BASE);
-    if ((pdpt[pdpt_idx].word0 & 0x1) == 0) {
+    uint64_t pde3_phys = (raw_pde4 & ~0xFULL) << 4;
+    NvMmuEntry *pde3 = (NvMmuEntry *)(pde3_phys + HHDM_BASE);
+    uint64_t raw_pde3 = ((uint64_t)pde3[pde3_idx].word1 << 32) | pde3[pde3_idx].word0;
+    if ((raw_pde3 & 0x6ULL) == 0) {
       continue;
     }
 
-    uint64_t pd_phys = ((uint64_t)(pdpt[pdpt_idx].word0 >> 4)) << 12;
-    NvMmuEntry *pd = (NvMmuEntry *)(pd_phys + HHDM_BASE);
-    if ((pd[pd_idx].word0 & 0x1) == 0) {
+    uint64_t pde2_phys = (raw_pde3 & ~0xFULL) << 4;
+    NvMmuEntry *pde2 = (NvMmuEntry *)(pde2_phys + HHDM_BASE);
+    uint64_t raw_pde2 = ((uint64_t)pde2[pde2_idx].word1 << 32) | pde2[pde2_idx].word0;
+    if ((raw_pde2 & 0x6ULL) == 0) {
       continue;
     }
 
-    uint64_t pt_phys = ((uint64_t)(pd[pd_idx].word0 >> 4)) << 12;
+    uint64_t pde1_phys = (raw_pde2 & ~0xFULL) << 4;
+    NvMmuEntry *pde1 = (NvMmuEntry *)(pde1_phys + HHDM_BASE);
+    NvMmuEntry *pd0_spt_entry = (NvMmuEntry *)((uint8_t *)pde1 + (pde1_idx * 16) + 8);
+    uint64_t raw_pd0 = ((uint64_t)pd0_spt_entry->word1 << 32) | pd0_spt_entry->word0;
+    if ((raw_pd0 & 0x6ULL) == 0) {
+      continue;
+    }
+
+    uint64_t pt_phys = (raw_pd0 & ~0xFULL) << 4;
     NvMmuEntry *pt = (NvMmuEntry *)(pt_phys + HHDM_BASE);
 
-    // Clear the PTE
-    pt[pt_idx].word0 = 0;
-    pt[pt_idx].word1 = 0;
+    pt[pte_idx].word0 = 0;
+    pt[pte_idx].word1 = 0;
 
-    // If the PT became empty, free it and clear the PDE
     if (is_table_empty(pt)) {
-      pd[pd_idx].word0 = 0;
-      pd[pd_idx].word1 = 0;
+      pd0_spt_entry->word0 = 0;
+      pd0_spt_entry->word1 = 0;
       remove_table_page(vmm, pt_phys);
 
-      // if PD is empty free it
-      if (is_table_empty(pd)) {
-        pdpt[pdpt_idx].word0 = 0;
-        pdpt[pdpt_idx].word1 = 0;
-        remove_table_page(vmm, pd_phys);
+      if (is_table_empty(pde1)) {
+        pde2[pde2_idx].word0 = 0;
+        pde2[pde2_idx].word1 = 0;
+        remove_table_page(vmm, pde1_phys);
 
-        // If PDPT is empty, free it too
-        if (is_table_empty(pdpt)) {
-          pml4[pml4_idx].word0 = 0;
-          pml4[pml4_idx].word1 = 0;
-          remove_table_page(vmm, pdpt_phys);
+        if (is_table_empty(pde2)) {
+          pde3[pde3_idx].word0 = 0;
+          pde3[pde3_idx].word1 = 0;
+          remove_table_page(vmm, pde2_phys);
+
+          if (is_table_empty(pde3)) {
+            pde4[pde4_idx].word0 = 0;
+            pde4[pde4_idx].word1 = 0;
+            remove_table_page(vmm, pde3_phys);
+          }
         }
       }
     }

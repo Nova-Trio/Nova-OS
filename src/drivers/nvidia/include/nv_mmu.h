@@ -9,11 +9,22 @@ typedef enum {
   NV_MMU_APERTURE_SYS_MEM_NONCOHERENT = 0x3, // system RAM
 } NvMmuAperture;
 
-#define NV_PFB_PRI_MMU_STATUS 0x00100C80
-#define NV_PFB_PRI_MMU_INVALIDATE_PDB 0x00100CB8
-#define NV_PFB_PRI_MMU_INVALIDATE_CMD 0x00100CBC
+#ifndef BIT_ULL
+#define BIT_ULL(nr) (1ULL << (nr))
+#endif
+
+#define NV_PFB_PRI_MMU_INVALIDATE_PDB_LO 0x00B830A0
+#define NV_PFB_PRI_MMU_INVALIDATE_PDB_HI 0x00B830A4
+#define NV_PFB_PRI_MMU_INVALIDATE_CMD 0x00B830B0
 #define NV_PFB_PRI_MMU_INVALIDATE_TRIGGER 0x80000000U
-#define NV_PFB_PRI_MMU_INVALIDATE_ALL 0x00000001U
+#define NV_PFB_PRI_MMU_INVALIDATE_ALL 0x00000007U
+
+#define NV_PFB_PRI_MMU_FAULT_ADDR_LO 0x00B83080
+#define NV_PFB_PRI_MMU_FAULT_ADDR_HI 0x00B83084
+#define NV_PFB_PRI_MMU_FAULT_INST_LO 0x00B83088
+#define NV_PFB_PRI_MMU_FAULT_INST_HI 0x00B8308C
+#define NV_PFB_PRI_MMU_FAULT_INFO 0x00B83090
+#define NV_PFB_PRI_MMU_FAULT_ACK 0x00B83094
 
 
 // This goes into the PT/PD
@@ -46,3 +57,5 @@ NvPde turing_mmu_encode_pde(uint64_t pt_phys, NvMmuAperture aperture);
 
 struct NvDevice;
 void nv_mmu_tlb_invalidate(const struct NvDevice *dev, uint64_t pdb_phys);
+
+void nv_mmu_dump_fault(const struct NvDevice *dev);

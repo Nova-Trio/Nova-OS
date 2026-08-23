@@ -5,8 +5,8 @@
 // Some gpus support larger pages
 #define NV_VMM_PAGE_SIZE 4096ULL
 
-#define NV_VMM_DEFAULT_VA_START 0x10000000ULL // 256MB, can be lower, 0x0 should be unmapped
-#define NV_VMM_DEFAULT_VA_LIMIT 0xFFFFFFFFFFFFULL // 2^48-1 (48-bit VA)
+#define NV_VMM_DEFAULT_VA_START 0x10000ULL // 256MB, can be lower, 0x0 should be unmapped
+#define NV_VMM_DEFAULT_VA_LIMIT 0x1FFFFFFFFFFFULL // 2^49-1 (49-bit VA)
 
 // Single page table page tracked by the VMM
 typedef struct NvTablePage {
