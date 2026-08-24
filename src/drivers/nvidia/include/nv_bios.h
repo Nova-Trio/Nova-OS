@@ -95,6 +95,9 @@ typedef struct {
   uint16_t signature_versions;
   uint16_t engine_id_mask;
 
+  const uint8_t *signatures;
+  uint32_t signatures_size;
+
   const uint8_t *ucode_image;
   size_t ucode_size;
 } NvFwsecImage;

@@ -284,6 +284,8 @@ int nv_bios_extract_fwsec(const NvBios *bios, NvFwsecImage *fwsec) {
 
     fwsec->interface_offset = fwsec->raw.v2.interface_offset;
     fwsec->pkc_data_offset = 0;
+    fwsec->signatures = NULL;
+    fwsec->signatures_size = 0;
 
     fwsec->ucode_image = bios->data + fwsec_desc_offset + desc_size;
     fwsec->ucode_size = fwsec->raw.v2.imem_load_size + fwsec->raw.v2.dmem_load_size;
@@ -297,7 +299,7 @@ int nv_bios_extract_fwsec(const NvBios *bios, NvFwsecImage *fwsec) {
 
     fwsec->dmem_offset = fwsec->raw.v3.imem_load_size;
     fwsec->dmem_phys_base = fwsec->raw.v3.dmem_phys_base;
-    fwsec->dmem_load_size = fwsec->raw.v3.dmem_load_size;
+    fwsec->dmem_load_size = (fwsec->raw.v3.dmem_load_size + 255U) & ~255U;
 
     fwsec->interface_offset = fwsec->raw.v3.interface_offset;
     fwsec->pkc_data_offset = fwsec->raw.v3.pkc_data_offset;
@@ -306,6 +308,15 @@ int nv_bios_extract_fwsec(const NvBios *bios, NvFwsecImage *fwsec) {
     fwsec->signature_count = fwsec->raw.v3.signature_count;
     fwsec->signature_versions = fwsec->raw.v3.signature_versions;
     fwsec->engine_id_mask = fwsec->raw.v3.engine_id_mask;
+
+    if (desc_size > sizeof(NvFwsecDescV3)) {
+      fwsec->signatures = bios->data + fwsec_desc_offset + sizeof(NvFwsecDescV3);
+      fwsec->signatures_size = desc_size - (uint32_t)sizeof(NvFwsecDescV3);
+    } else {
+      fwsec->signatures = NULL;
+      fwsec->signatures_size = 0;
+    }
+
 
     fwsec->ucode_image = bios->data + fwsec_desc_offset + desc_size;
     fwsec->ucode_size = fwsec->raw.v3.imem_load_size + fwsec->raw.v3.dmem_load_size;

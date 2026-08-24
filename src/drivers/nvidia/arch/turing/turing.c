@@ -4,8 +4,11 @@
 #include <nv_dma.h>
 #include <nv_vmm.h>
 #include <nv_bios.h>
+#include <nv_falcon.h>
 
 // NOTE: Yall can guard the kprintfs and other stuff with defines but only if the impl works
+
+
 
 static int turing_init(NvDevice *dev) {
   kprintf("[NV/TU] Initializing %s (%s, rev %u.%u)\n",
@@ -34,6 +37,7 @@ static int turing_init(NvDevice *dev) {
   kprintf("[NV/TU] PDB: 0x%016llx\n", dev->vmm.pdb.phys_addr);
 
   nv_bios_verify_test(dev);
+
 
   return 0;
 }
