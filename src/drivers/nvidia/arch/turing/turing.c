@@ -3,6 +3,7 @@
 #include <nv_bus.h>
 #include <nv_dma.h>
 #include <nv_vmm.h>
+#include <nv_bios.h>
 
 // NOTE: Yall can guard the kprintfs and other stuff with defines but only if the impl works
 
@@ -31,6 +32,8 @@ static int turing_init(NvDevice *dev) {
   nv_mmu_tlb_invalidate(dev, dev->vmm.pdb.phys_addr);
 
   kprintf("[NV/TU] PDB: 0x%016llx\n", dev->vmm.pdb.phys_addr);
+
+  nv_bios_verify_test(dev);
 
   return 0;
 }
