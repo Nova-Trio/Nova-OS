@@ -54,6 +54,7 @@ static inline uint64_t nv_dma_rd64(const NvDmaBuffer *buf, size_t offset) {
 
 int nv_dma_alloc(NvDmaBuffer *buf, size_t size);
 void nv_dma_free(NvDmaBuffer *buf);
+int nv_dma_alloc_aligned(NvDmaBuffer *buf, size_t size, size_t align_bytes);
 
 void nv_dma_writer_init(NvDmaWriter *w, NvDmaBuffer *buf);
 int nv_dma_push(NvDmaWriter *w, uint32_t val);

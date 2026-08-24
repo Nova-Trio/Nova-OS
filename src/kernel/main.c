@@ -35,6 +35,7 @@ static void print_dir_entry(const Fat32DirEntry *entry, void *context) {
   }
 }
 
+
 __attribute__((noreturn)) void _start(BootInfo *boot_info) {
   for (uint32_t i = 0; i < 256; i++) {
     boot_info->pml4[i] = 0;

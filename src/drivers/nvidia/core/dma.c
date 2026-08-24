@@ -68,3 +68,32 @@ void nv_dma_writer_flush(NvDmaWriter *w) {
   (void)w;
   nv_dma_wmb();
 }
+
+int nv_dma_alloc_aligned(NvDmaBuffer *buf, size_t size, size_t align_bytes) {
+  if (!buf || size == 0) {
+    return -1;
+  }
+
+  if (align_bytes < PAGE_SIZE) {
+    align_bytes = PAGE_SIZE;
+  }
+
+  size_t page_count = (size + PAGE_SIZE - 1) / PAGE_SIZE;
+  size_t align_pages = align_bytes / PAGE_SIZE;
+
+  void *phys = pmm_alloc_aligned_frames(page_count, align_pages);
+  if (!phys) {
+    return -1;
+  }
+
+  uint64_t phys_addr = (uint64_t)phys;
+  uint64_t virt_addr = phys_addr + HHDM_BASE;
+
+  buf->phys_addr = phys_addr;
+  buf->virt_addr = virt_addr;
+  buf->size = size;
+  buf->page_count = page_count;
+
+  memset((void *)virt_addr, 0, page_count * PAGE_SIZE);
+  return 0;
+}

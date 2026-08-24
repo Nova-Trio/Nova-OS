@@ -86,3 +86,4 @@ EXPORT_SYMBOL(fs_stat);
 EXPORT_SYMBOL(lapic_get_id);
 EXPORT_SYMBOL(fs_read);
 EXPORT_SYMBOL(fs_list_dir);
+EXPORT_SYMBOL(pmm_alloc_aligned_frames);

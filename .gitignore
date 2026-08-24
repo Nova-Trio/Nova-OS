@@ -9,3 +9,7 @@ compile_commands.json
 *.fd
 *.img
 *.vhd
+
+*.rom
+firmware/
+fw/

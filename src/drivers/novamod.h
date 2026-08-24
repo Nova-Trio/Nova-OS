@@ -163,6 +163,7 @@ void *pmm_alloc_frame(void);
 void *pmm_alloc_frames(size_t count);
 void pmm_free_frame(void *phys_addr);
 void pmm_free_frames(void *phys_addr, size_t count);
+void *pmm_alloc_aligned_frames(size_t count, size_t align_frames);
 
 void hpet_sleep_ms(uint64_t ms);
 void hpet_sleep_us(uint64_t us);

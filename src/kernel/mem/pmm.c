@@ -249,3 +249,41 @@ uint64_t pmm_get_free_frames(void) {
 uint64_t pmm_get_used_frames(void) {
   return g_used_frames;
 }
+
+
+void *pmm_alloc_aligned_frames(size_t count, size_t align_frames) {
+  if (count == 0) {
+    return NULL;
+  }
+  if (align_frames <= 1) {
+    return pmm_alloc_frames(count);
+  }
+
+  uint64_t start_frame = 0;
+
+  while (start_frame + count <= g_total_frames) {
+    uint64_t aligned_start = (start_frame + align_frames - 1) & ~(align_frames - 1);
+    if (aligned_start + count > g_total_frames) {
+      break;
+    }
+
+    int conflict = 0;
+    for (uint64_t f = aligned_start; f < aligned_start + count; f++) {
+      if (bitmap_test_bit(f)) {
+        start_frame = f + 1;
+        conflict = 1;
+        break;
+      }
+    }
+
+    if (!conflict) {
+      for (uint64_t f = aligned_start; f < aligned_start + count; f++) {
+        bitmap_set_bit(f);
+      }
+      g_used_frames += count;
+      return (void *)(aligned_start * PAGE_SIZE);
+    }
+  }
+
+  return NULL;
+}

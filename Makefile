@@ -112,15 +112,18 @@ endef
 $(foreach drv,$(DRIVER_NAMES),$(eval $(call DRIVER_RULE,$(drv))))
 
 $(IMG): $(EFI) $(KERNEL) $(DRIVER_ELFS)
-	dd if=/dev/zero of=$@ bs=1M count=64 status=none
+	dd if=/dev/zero of=$@ bs=1M count=128 status=none
 ifneq ($(HAVE_PARTED),)
 	parted -s $@ mklabel gpt mkpart ESP fat32 2048s 100% set 1 esp on
 	mformat -i $@@@1M -F ::
-	mmd -i $@@@1M ::/EFI ::/EFI/BOOT ::/EFI/novaos ::/nova ::/nova/drivers
+	mmd -i $@@@1M ::/EFI ::/EFI/BOOT ::/EFI/novaos ::/nova ::/nova/drivers ::/nova/fw
 	mcopy -i $@@@1M $(EFI) ::/EFI/BOOT/BOOTX64.EFI
 	mcopy -i $@@@1M $(KERNEL) ::/EFI/novaos/$(KERNEL)
 	mcopy -i $@@@1M zap-light16.psf ::/EFI/novaos/zap-light16.psf
 	mcopy -i $@@@1M reallylongfilenamecros.txt ::/EFI/novaos/reallylongfilenamecros.txt
+	mcopy -i $@@@1M firmware/nvidia/booter_load.bin ::/nova/fw/booter_load.bin
+	mcopy -i $@@@1M firmware/nvidia/bootloader.bin ::/nova/fw/bootloader.bin
+	mcopy -i $@@@1M firmware/nvidia/gsp.bin ::/nova/fw/gsp.bin
 	@for drv in $(DRIVER_ELFS); do \
 		if [ -f "$$drv" ]; then \
 			mcopy -i $@@@1M "$$drv" ::/nova/drivers/$$(basename "$$drv"); \
@@ -128,11 +131,14 @@ ifneq ($(HAVE_PARTED),)
 	done
 else
 	mformat -i $@ -F ::
-	mmd -i $@ ::/EFI ::/EFI/BOOT ::/EFI/novaos ::/nova ::/nova/drivers
+	mmd -i $@ ::/EFI ::/EFI/BOOT ::/EFI/novaos ::/nova ::/nova/drivers ::/nova/fw
 	mcopy -i $@ $(EFI) ::/EFI/BOOT/BOOTX64.EFI
 	mcopy -i $@ $(KERNEL) ::/EFI/novaos/$(KERNEL)
 	mcopy -i $@ zap-light16.psf ::/EFI/novaos/zap-light16.psf
 	mcopy -i $@ reallylongfilenamecros.txt ::/EFI/novaos/reallylongfilenamecros.txt
+	mcopy -i $@ firmware/nvidia/booter_load.bin ::/nova/fw/booter_load.bin
+	mcopy -i $@ firmware/nvidia/bootloader.bin ::/nova/fw/bootloader.bin
+	mcopy -i $@ firmware/nvidia/gsp.bin ::/nova/fw/gsp.bin
 	@for drv in $(DRIVER_ELFS); do \
 		if [ -f "$$drv" ]; then \
 			mcopy -i $@ "$$drv" ::/nova/drivers/$$(basename "$$drv"); \
@@ -150,7 +156,7 @@ run-debug: $(IMG)
 
 
 run-vfio: $(IMG)
-	sudo qemu-system-x86_64 -bios $(OVMF) -drive file=$(IMG),format=raw,if=none,id=nvm0 -device nvme,serial=1234ffff,drive=nvm0 $(QEMU_CPU) $(QEMU_ACCEL) -M q35 -device pcie-root-port,id=root_port1,chassis=1,slot=1,bus=pcie.0 -device vfio-pci,host=01:00.0,bus=root_port1,multifunction=on
+	sudo qemu-system-x86_64 -m 512M -bios $(OVMF) -drive file=$(IMG),format=raw,if=none,id=nvm0 -device nvme,serial=1234ffff,drive=nvm0 $(QEMU_CPU) $(QEMU_ACCEL) -M q35 -device pcie-root-port,id=root_port1,chassis=1,slot=1,bus=pcie.0 -device vfio-pci,host=01:00.0,bus=root_port1,multifunction=on,romfile=./gpu.rom
 	reset
 clean:
 	rm -rf $(BUILD_DIR) $(EFI) $(KERNEL) $(IMG)
