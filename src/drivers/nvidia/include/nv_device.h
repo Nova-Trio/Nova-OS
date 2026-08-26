@@ -40,6 +40,7 @@ typedef struct NvDevice {
   NvChipInfo chip;
   NvVmm vmm;
   NvDmaBuffer bar1_inst;
+  NvDmaBuffer flush_page;
   const NvArchOps *ops;
   struct NvDevice *next;
 } NvDevice;

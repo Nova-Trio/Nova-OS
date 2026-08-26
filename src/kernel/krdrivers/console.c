@@ -1,5 +1,38 @@
 #include "console.h"
 
+#define COM1_PORT 0x3F8
+
+static inline void outb(uint16_t port, uint8_t val) {
+  __asm__ volatile("outb %0, %1" : : "a"(val), "Nd"(port));
+}
+
+static inline uint8_t inb(uint16_t port) {
+  uint8_t ret;
+  __asm__ volatile("inb %1, %0" : "=a"(ret) : "Nd"(port));
+  return ret;
+}
+
+static void serial_init(void) {
+  outb(COM1_PORT + 1, 0x00);
+  outb(COM1_PORT + 3, 0x80);
+  outb(COM1_PORT + 0, 0x01);
+  outb(COM1_PORT + 1, 0x00);
+  outb(COM1_PORT + 3, 0x03);
+  outb(COM1_PORT + 2, 0xC7);
+  outb(COM1_PORT + 4, 0x0B);
+}
+
+static inline int serial_is_transmit_empty(void) {
+  return inb(COM1_PORT + 5) & 0x20;
+}
+
+static void serial_putchar(char c) {
+  while (!serial_is_transmit_empty()) {
+    __asm__ volatile("pause");
+  }
+  outb(COM1_PORT, (uint8_t)c);
+}
+
 #define FLAG_LEFT (1 << 0)
 #define FLAG_PLUS (1 << 1)
 #define FLAG_SPACE (1 << 2)
@@ -26,6 +59,7 @@ void console_init(BootInfo *boot_info) {
   g_boot_info = boot_info;
   cursor_x = 0;
   cursor_y = 0;
+  serial_init();
 }
 
 void console_set_color(uint32_t fg, uint32_t bg) {
@@ -92,6 +126,11 @@ static void draw_char(char c, uint32_t cx, uint32_t cy) {
 }
 
 void console_putchar(char c) {
+  if (c == '\n') {
+    serial_putchar('\r');
+  }
+  serial_putchar(c);
+
   if (!g_boot_info) return;
 
   uint8_t char_size = g_boot_info->font.header->charsize;

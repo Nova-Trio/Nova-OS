@@ -26,6 +26,15 @@ static inline void nv_dma_mb(void) {
   __asm__ volatile("mfence" ::: "memory");
 }
 
+static inline void nv_dma_clflush_range(const void *p, size_t size) {
+  uintptr_t start = (uintptr_t)p & ~(64ULL - 1);
+  uintptr_t end = (uintptr_t)p + size;
+  for (uintptr_t addr = start; addr < end; addr += 64) {
+    __asm__ volatile("clflush (%0)" : : "r"(addr) : "memory");
+  }
+  __asm__ volatile("mfence" ::: "memory");
+}
+
 static inline void nv_dma_wr32(const NvDmaBuffer *buf, size_t offset, uint32_t val) {
   if (buf && buf->virt_addr && (offset + sizeof(uint32_t) <= buf->size)) {
     *(volatile uint32_t *)(buf->virt_addr + offset) = val;

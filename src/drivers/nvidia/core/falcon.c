@@ -1,4 +1,4 @@
-#include "nv_falcon.h"
+#include <nv_falcon.h>
 
 void nv_falcon_init(NvFalcon *falcon, uint32_t base_addr, uint32_t fbif_base, uint32_t riscv_base, bool is_riscv, const char *name) {
   if (!falcon) {
@@ -204,7 +204,12 @@ void nv_falcon_start_cpu(const NvDevice *dev, const NvFalcon *falcon) {
   if (!dev || !falcon || !dev->bar0.virt_addr) {
     return;
   }
-  nv_wr32(dev, falcon->base_addr + NV_FALCON_CPUCTL, NV_FALCON_CPUCTL_STARTCPU);
+  uint32_t cpuctl = nv_rd32(dev, falcon->base_addr + NV_FALCON_CPUCTL);
+  if (cpuctl & NV_FALCON_CPUCTL_ALIAS_EN) {
+    nv_wr32(dev, falcon->base_addr + 0x00000130U, NV_FALCON_CPUCTL_STARTCPU);
+  } else {
+    nv_wr32(dev, falcon->base_addr + NV_FALCON_CPUCTL, NV_FALCON_CPUCTL_STARTCPU);
+  }
 }
 
 int nv_falcon_wait_halt(const NvDevice *dev, const NvFalcon *falcon, uint32_t timeout_us) {

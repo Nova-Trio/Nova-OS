@@ -33,6 +33,25 @@ static void mem_copy(void *dst, const void *src, UINTN size) {
   }
 }
 
+static EFI_STATUS set_gop_resolution(EFI_GRAPHICS_OUTPUT_PROTOCOL *gop,
+                                     UINTN width, UINTN height) {
+  if (!gop) return (EFI_STATUS)-1;
+
+  for (UINTN mode = 0; mode < gop->Mode->MaxMode; mode++) {
+    UINTN size;
+    EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *info;
+    EFI_STATUS s = gop->QueryMode(gop, mode, &size, &info);
+
+    if (info->HorizontalResolution == width && info->VerticalResolution == height) {
+      if (info->PixelFormat == PixelBlueGreenRedReserved8BitPerColor ||
+        info->PixelFormat == PixelRedGreenBlueReserved8BitPerColor) {
+        return gop->SetMode(gop, mode);
+        }
+    }
+  }
+  return (EFI_STATUS)-1;
+}
+
 static uint64_t *get_or_create_table(uint64_t *entry, EFI_BOOT_SERVICES *bs) {
   if (*entry & PTE_PRESENT) {
     return (uint64_t *)(*entry & PTE_ADDR_MASK);
@@ -330,6 +349,8 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     return s;
   }
 
+  s = set_gop_resolution(gop, 1920, 1080);
+
   BootFramebuffer fb = {
     .base = gop->Mode->FrameBufferBase,
     .size = gop->Mode->FrameBufferSize,
@@ -369,6 +390,8 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     }
   }
   SystemTable->BootServices->FreePool(mappings);
+
+
 
   #define STACK_PAGES 8
   #define STACK_VADDR 0xFFFFFFFF80100000ULL

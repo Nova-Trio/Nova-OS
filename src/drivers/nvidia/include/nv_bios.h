@@ -23,6 +23,9 @@
 
 #define NV_PMU_UCODE_TYPE_FWSEC 0x85U
 
+#define FALCON_APPLICATION_INTERFACE_ENTRY_ID_DMEMMAPPER 0x4
+#define FALCON_APPLICATION_INTERFACE_DMEM_MAPPER_V3_CMD_FRTS 0x15
+
 typedef struct {
   uint8_t *data;
   size_t size;
@@ -102,6 +105,59 @@ typedef struct {
   size_t ucode_size;
 } NvFwsecImage;
 
+typedef struct {
+  uint8_t version;
+  uint8_t headerSize;
+  uint8_t entrySize;
+  uint8_t entryCount;
+} __attribute__((packed)) FlcnAppIntfHeader;
+
+typedef struct {
+  uint32_t id;
+  uint32_t dmemOffset;
+} __attribute__((packed)) FlcnAppIntfEntry;
+
+typedef struct {
+  uint32_t signature;
+  uint16_t version;
+  uint16_t size;
+  uint32_t cmd_in_buffer_offset;
+  uint32_t cmd_in_buffer_size;
+  uint32_t cmd_out_buffer_offset;
+  uint32_t cmd_out_buffer_size;
+  uint32_t nvf_img_data_buffer_offset;
+  uint32_t nvf_img_data_buffer_size;
+  uint32_t printfBufferHdr;
+  uint32_t ucode_build_time_stamp;
+  uint32_t ucode_signature;
+  uint32_t init_cmd;
+  uint32_t ucode_feature;
+  uint32_t ucode_cmd_mask0;
+  uint32_t ucode_cmd_mask1;
+  uint32_t multiTgtTbl;
+} __attribute__((packed)) FlcnDmemMapperV3;
+
+typedef struct {
+  uint32_t version;
+  uint32_t size;
+  uint64_t gfwImageOffset;
+  uint32_t gfwImageSize;
+  uint32_t flags;
+} __attribute__((packed)) FwsecReadVbiosDesc;
+
+typedef struct {
+  uint32_t version;
+  uint32_t size;
+  uint32_t frtsRegionOffset4K;
+  uint32_t frtsRegionSize;
+  uint32_t frtsRegionMediaType;
+} __attribute__((packed)) FwsecFrtsRegionDesc;
+
+typedef struct {
+  FwsecReadVbiosDesc readVbiosDesc;
+  FwsecFrtsRegionDesc frtsRegionDesc;
+} __attribute__((packed)) FwsecFrtsCmd;
+
 int nv_bios_init(const NvDevice *dev, NvBios *bios);
 void nv_bios_free(NvBios *bios);
 
@@ -109,3 +165,4 @@ int nv_bios_get_bit_entry(const NvBios *bios, uint8_t id, NvBitEntry *entry);
 int nv_bios_extract_fwsec(const NvBios *bios, NvFwsecImage *fwsec);
 
 int nv_bios_verify_test(const NvDevice *dev);
+int nv_fwsec_execute_frts(const NvDevice *dev, const NvFwsecImage *fwsec, uint64_t frts_offset);

@@ -1,6 +1,8 @@
 #include <nv_bios.h>
 #include <novamod.h>
 #include <stdbool.h>
+#include <nv_falcon.h>
+#include <nv_wpr.h>
 
 static inline uint32_t prom_rd32_raw(const NvDevice *dev, uint32_t offset) {
   return nv_rd32(dev, NV_PROM_BASE + offset);
@@ -366,5 +368,136 @@ int nv_bios_verify_test(const NvDevice *dev) {
 
   nv_bios_free(&bios);
   kprintf("[VBIOS/TEST] Verification completed successfully.\n");
+  return 0;
+}
+
+int nv_fwsec_execute_frts(const NvDevice *dev, const NvFwsecImage *fwsec, uint64_t frts_offset) {
+  if (!dev || !fwsec || !fwsec->ucode_image || fwsec->ucode_size == 0 || frts_offset == 0) {
+    kprintf("[NV/FWSEC] Error: Invalid parameters for FWSEC-FRTS execution\n");
+    return -1;
+  }
+
+  kprintf("[NV/FWSEC] Preparing FWSEC v%u for FRTS (Offset: 0x%016llx)...\n", fwsec->version, frts_offset);
+
+  FwsecFrtsCmd frts_cmd;
+  memset(&frts_cmd, 0, sizeof(FwsecFrtsCmd));
+
+  frts_cmd.readVbiosDesc.version = 1;
+  frts_cmd.readVbiosDesc.size = sizeof(FwsecReadVbiosDesc);
+  frts_cmd.readVbiosDesc.gfwImageOffset = 0;
+  frts_cmd.readVbiosDesc.gfwImageSize = 0;
+  frts_cmd.readVbiosDesc.flags = 2; // FWSECLIC_READ_VBIOS_STRUCT_FLAGS
+
+  frts_cmd.frtsRegionDesc.version = 1;
+  frts_cmd.frtsRegionDesc.size = sizeof(FwsecFrtsRegionDesc);
+  frts_cmd.frtsRegionDesc.frtsRegionOffset4K = (uint32_t)(frts_offset >> 12);
+  frts_cmd.frtsRegionDesc.frtsRegionSize = 0x100;
+  frts_cmd.frtsRegionDesc.frtsRegionMediaType = 2;
+
+  uint8_t *dmem_buf = (uint8_t *)kmalloc(fwsec->dmem_load_size);
+  if (!dmem_buf) {
+    kprintf("[NV/FWSEC] Error: Failed to allocate DMEM staging buffer\n");
+    return -1;
+  }
+
+  memcpy(dmem_buf, fwsec->ucode_image + fwsec->dmem_offset, fwsec->dmem_load_size);
+
+  if (fwsec->interface_offset >= fwsec->dmem_load_size) {
+    kprintf("[NV/FWSEC] Error: Invalid interface offset 0x%x\n", fwsec->interface_offset);
+    kfree(dmem_buf);
+    return -1;
+  }
+
+  const FlcnAppIntfHeader *intf_hdr = (const FlcnAppIntfHeader *)(dmem_buf + fwsec->interface_offset);
+  uint32_t cur_offset = fwsec->interface_offset + sizeof(FlcnAppIntfHeader);
+  FlcnDmemMapperV3 *dmem_mapper = NULL;
+
+  for (uint8_t i = 0; i < intf_hdr->entryCount; i++) {
+    if (cur_offset + sizeof(FlcnAppIntfEntry) > fwsec->dmem_load_size) {
+      break;
+    }
+    const FlcnAppIntfEntry *entry = (const FlcnAppIntfEntry *)(dmem_buf + cur_offset);
+    cur_offset += sizeof(FlcnAppIntfEntry);
+
+    if (entry->id == FALCON_APPLICATION_INTERFACE_ENTRY_ID_DMEMMAPPER) {
+      if (entry->dmemOffset + sizeof(FlcnDmemMapperV3) <= fwsec->dmem_load_size) {
+        dmem_mapper = (FlcnDmemMapperV3 *)(dmem_buf + entry->dmemOffset);
+        break;
+      }
+    }
+  }
+
+  if (!dmem_mapper) {
+    kprintf("[NV/FWSEC] Error: DMEMMAPPER entry not found in interface table\n");
+    kfree(dmem_buf);
+    return -1;
+  }
+
+  dmem_mapper->init_cmd = FALCON_APPLICATION_INTERFACE_DMEM_MAPPER_V3_CMD_FRTS;
+  if (dmem_mapper->cmd_in_buffer_offset + sizeof(FwsecFrtsCmd) > fwsec->dmem_load_size) {
+    kprintf("[NV/FWSEC] Error: Command input buffer out of bounds\n");
+    kfree(dmem_buf);
+    return -1;
+  }
+
+  memcpy(dmem_buf + dmem_mapper->cmd_in_buffer_offset, &frts_cmd, sizeof(FwsecFrtsCmd));
+
+  NvFalcon gsp_falcon;
+  nv_falcon_init_gsp(&gsp_falcon);
+
+  if (nv_falcon_reset(dev, &gsp_falcon) != 0) {
+    kprintf("[NV/FWSEC] Error: Failed to reset GSP Falcon engine\n");
+    kfree(dmem_buf);
+    return -1;
+  }
+
+  if (fwsec->imem_load_size > 0) {
+    if (nv_falcon_imem_write(dev, &gsp_falcon, fwsec->imem_phys_base,
+      fwsec->ucode_image, fwsec->imem_load_size,
+      false, fwsec->imem_phys_base) != 0) {
+      kprintf("[NV/FWSEC] Error: Failed to write non-secure IMEM to GSP Falcon\n");
+    kfree(dmem_buf);
+    return -1;
+      }
+  }
+
+  if (fwsec->imem_sec_size > 0) {
+    if (nv_falcon_imem_write(dev, &gsp_falcon, fwsec->imem_sec_base,
+      fwsec->ucode_image + fwsec->imem_sec_base,
+      fwsec->imem_sec_size,
+      true, fwsec->imem_sec_base) != 0) {
+      kprintf("[NV/FWSEC] Error: Failed to write secure IMEM to GSP Falcon\n");
+    kfree(dmem_buf);
+    return -1;
+      }
+  }
+
+  if (nv_falcon_dmem_write(dev, &gsp_falcon, fwsec->dmem_phys_base,
+    dmem_buf, fwsec->dmem_load_size) != 0) {
+    kprintf("[NV/FWSEC] Error: Failed to write patched DMEM to GSP Falcon\n");
+    kfree(dmem_buf);
+    return -1;
+  }
+  kfree(dmem_buf);
+
+  uint32_t bootvec = (fwsec->version == 2) ? fwsec->raw.v2.virtual_entry : 0x00000000U;
+  nv_falcon_set_bootvec(dev, &gsp_falcon, bootvec);
+
+  kprintf("[NV/FWSEC] Starting GSP Falcon CPU to execute FWSEC-FRTS (BOOTVEC=0x%08x)\n", bootvec);
+
+  nv_falcon_start_cpu(dev, &gsp_falcon);
+
+  if (nv_falcon_wait_halt(dev, &gsp_falcon, 2000000U) != 0) {
+    uint32_t cpuctl = nv_rd32(dev, gsp_falcon.base_addr + NV_FALCON_CPUCTL);
+    kprintf("[NV/FWSEC] Error: FWSEC-FRTS timed out (CPUCTL=0x%08x)\n", cpuctl);
+    return -1;
+  }
+
+  if (!nv_wpr_is_wpr2_up(dev)) {
+    kprintf("[NV/FWSEC] Error: WPR2 aperture not active after FWSEC-FRTS execution\n");
+    return -1;
+  }
+
+  kprintf("[NV/FWSEC] FWSEC-FRTS completed successfully (PFB_WPR2_HI=0x%08x).\n", nv_rd32(dev, NV_PFB_PRI_MMU_WPR2_ADDR_HI));
   return 0;
 }
