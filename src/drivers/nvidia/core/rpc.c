@@ -468,11 +468,138 @@ int nv_gsp_intr_get_table(const NvDevice *dev, NvGspContext *gsp, const GspStati
   kprintf("Discovered Entries: %u\n", res_params->tableLen);
   for (uint32_t i = 0; i < res_params->tableLen && i < NV2080_CTRL_INTERNAL_INTR_MAX_TABLE_SIZE; i++) {
     kprintf("[%02u] EngineIdx: 0x%04x | PMC Mask: 0x%08x | Stall: 0x%04x | Non-Stall: 0x%04x\n", i, res_params->table[i].engineIdx, res_params->table[i].pmcIntrMask,
-            res_params->table[i].vectorStall,
-            res_params->table[i].vectorNonStall);
+            res_params->table[i].vectorStall, res_params->table[i].vectorNonStall);
   }
   kprintf("**END**\n\n");
 
   nv_gsp_rpc_done(gsp, reply);
   return 0;
+}
+
+
+int nv_rm_alloc(const NvDevice *dev, NvGspContext *gsp, uint32_t hClient, uint32_t hParent, uint32_t hObject, uint32_t hClass, void *params, uint32_t params_size){
+  if (!dev || !gsp || !hObject) {
+    return -1;
+  }
+
+  uint32_t total_alloc_size = (uint32_t)sizeof(rpc_gsp_rm_alloc_v03_00) + params_size;
+  void *payload = nv_gsp_rpc_get(gsp, NV_VGPU_MSG_FUNCTION_GSP_RM_ALLOC, total_alloc_size);
+  if (!payload) {
+    kprintf("[NV/RM] Error: Failed to acquire RPC buffer for RM_ALLOC (cls=0x%04x)\n", hClass);
+    return -1;
+  }
+
+  rpc_gsp_rm_alloc_v03_00 *alloc = (rpc_gsp_rm_alloc_v03_00 *)payload;
+  alloc->hClient = hClient;
+  alloc->hParent = hParent;
+  alloc->hObject = hObject;
+  alloc->hClass = hClass;
+  alloc->status = 0;
+  alloc->paramsSize = params_size;
+  alloc->flags = 0;
+  memset(alloc->reserved, 0, sizeof(alloc->reserved));
+
+  if (params && params_size > 0) {
+    memcpy(alloc->params, params, params_size);
+  }
+
+  rpc_gsp_rm_alloc_v03_00 *reply = (rpc_gsp_rm_alloc_v03_00 *)nv_gsp_rpc_push(dev, gsp, payload, NV_GSP_RPC_REPLY_RECV, total_alloc_size);
+
+  if (!reply) {
+    kprintf("[NV/RM] Error: RPC transport failed for RM_ALLOC (cls=0x%04x, obj=0x%08x)\n", hClass, hObject);
+    return -1;
+  }
+
+  if (reply->status != 0) {
+    uint32_t err_status = reply->status;
+    kprintf("[NV/RM] Error: GSP-RM rejected RM_ALLOC (cls=0x%04x, obj=0x%08x, status=0x%08x)\n", hClass, hObject, err_status);
+    nv_gsp_rpc_done(gsp, reply);
+    return nv_rpc_status_to_errno(err_status);
+  }
+
+  if (params && params_size > 0) {
+    memcpy(params, reply->params, params_size);
+  }
+
+  nv_gsp_rpc_done(gsp, reply);
+  return 0;
+}
+
+
+int nv_rm_control(const NvDevice *dev, NvGspContext *gsp, uint32_t hClient, uint32_t hObject, uint32_t cmd, void *params, uint32_t params_size){
+  if (!dev || !gsp || !hObject) {
+    return -1;
+  }
+
+  uint32_t total_ctrl_size = (uint32_t)sizeof(rpc_gsp_rm_control_v03_00) + params_size;
+  void *payload = nv_gsp_rpc_get(gsp, NV_VGPU_MSG_FUNCTION_GSP_RM_CONTROL, total_ctrl_size);
+  if (!payload) {
+    kprintf("[NV/RM] Error: Failed to acquire RPC buffer for RM_CONTROL (cmd=0x%08x)\n", cmd);
+    return -1;
+  }
+
+  rpc_gsp_rm_control_v03_00 *ctrl = (rpc_gsp_rm_control_v03_00 *)payload;
+  ctrl->hClient = hClient;
+  ctrl->hObject = hObject;
+  ctrl->cmd = cmd;
+  ctrl->status = 0;
+  ctrl->paramsSize = params_size;
+  ctrl->flags = 0;
+
+  if (params && params_size > 0) {
+    memcpy(ctrl->params, params, params_size);
+  }
+
+  rpc_gsp_rm_control_v03_00 *reply = (rpc_gsp_rm_control_v03_00 *)nv_gsp_rpc_push(dev, gsp, payload, NV_GSP_RPC_REPLY_RECV, total_ctrl_size);
+
+  if (!reply) {
+    kprintf("[NV/RM] Error: RPC transport failed for RM_CONTROL (cmd=0x%08x, obj=0x%08x)\n", cmd, hObject);
+    return -1;
+  }
+
+  if (reply->status != 0) {
+    uint32_t err_status = reply->status;
+    kprintf("[NV/RM] Error: GSP-RM rejected RM_CONTROL (cmd=0x%08x, obj=0x%08x, status=0x%08x)\n", cmd, hObject, err_status);
+    nv_gsp_rpc_done(gsp, reply);
+    return nv_rpc_status_to_errno(err_status);
+  }
+
+  if (params && params_size > 0) {
+    memcpy(params, reply->params, params_size);
+  }
+
+  nv_gsp_rpc_done(gsp, reply);
+  return 0;
+}
+
+int nv_rm_free(const NvDevice *dev, NvGspContext *gsp, uint32_t hClient, uint32_t hParent, uint32_t hObject) {
+  if (!dev || !gsp || !hObject) {
+    return -1;
+  }
+
+  uint32_t total_free_size = (uint32_t)sizeof(rpc_free_v03_00);
+  void *payload = nv_gsp_rpc_get(gsp, NV_VGPU_MSG_FUNCTION_FREE, total_free_size);
+  if (!payload) {
+    return -1;
+  }
+
+  rpc_free_v03_00 *free_rpc = (rpc_free_v03_00 *)payload;
+  free_rpc->params.hRoot = hClient;
+  free_rpc->params.hObjectParent = hParent;
+  free_rpc->params.hObjectOld = hObject;
+  free_rpc->params.status = 0;
+
+  rpc_free_v03_00 *reply = (rpc_free_v03_00 *)nv_gsp_rpc_push(dev, gsp, payload, NV_GSP_RPC_REPLY_RECV, total_free_size);
+
+  if (!reply) {
+    return -1;
+  }
+
+  int ret = 0;
+  if (reply->params.status != 0) {
+    ret = nv_rpc_status_to_errno(reply->params.status);
+  }
+
+  nv_gsp_rpc_done(gsp, reply);
+  return ret;
 }

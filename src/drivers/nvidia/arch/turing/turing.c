@@ -13,6 +13,96 @@
 
 // NOTE: Yall can guard the kprintfs and other stuff with defines but only if the impl works
 
+static int turing_rm_objects_init(NvDevice *dev, NvGspContext *gsp, const GspStaticConfigInfo *static_info) {
+  int res;
+
+  NV0000_ALLOC_PARAMETERS client_params;
+  memset(&client_params, 0, sizeof(client_params));
+  client_params.hClient = NV_RM_HANDLE_CLIENT;
+  client_params.processID = 0;
+  for (size_t i = 0; i < sizeof(client_params.processName) - 1 && "NovaKernel"[i]; i++) {
+    client_params.processName[i] = "NovaKernel"[i];
+  }
+
+  res = nv_rm_alloc(dev, gsp, NV_RM_HANDLE_CLIENT, 0x00000000U, NV_RM_HANDLE_CLIENT, NV01_ROOT_CLIENT, &client_params, sizeof(client_params));
+  if (res != 0) {
+    kprintf("[NV/RM] Error: Failed to allocate Root Client (%d)\n", res);
+    return res;
+  }
+  dev->rm_handles.client = NV_RM_HANDLE_CLIENT;
+  kprintf("[NV/RM] Root Client allocated (Handle: 0x%08x)\n", dev->rm_handles.client);
+
+  NV0080_ALLOC_PARAMETERS dev_params;
+  memset(&dev_params, 0, sizeof(dev_params));
+  dev_params.deviceId = 0;
+  dev_params.hClientShare = dev->rm_handles.client;
+  dev_params.hTargetClient = 0;
+  dev_params.hTargetDevice = 0;
+  dev_params.flags = 0;
+  dev_params.vaMode = NV_DEVICE_ALLOCATION_VAMODE_MULTIPLE_VASPACES;
+
+  res = nv_rm_alloc(dev, gsp, dev->rm_handles.client, dev->rm_handles.client, NV_RM_HANDLE_DEVICE, NV01_DEVICE_0, &dev_params, sizeof(dev_params));
+  if (res != 0) {
+    kprintf("[NV/RM] Error: Failed to allocate Device object (%d)\n", res);
+    return res;
+  }
+  dev->rm_handles.device = NV_RM_HANDLE_DEVICE;
+  kprintf("[NV/RM] Device allocated (Handle: 0x%08x)\n", dev->rm_handles.device);
+
+  NV_VASPACE_ALLOCATION_PARAMETERS vas_params;
+  memset(&vas_params, 0, sizeof(vas_params));
+  vas_params.index = NV_VASPACE_ALLOCATION_INDEX_GPU_NEW;
+  vas_params.flags = NV_VASPACE_ALLOCATION_FLAGS_IS_EXTERNALLY_OWNED;
+  vas_params.vaBase = dev->vmm.va_start;
+  vas_params.vaSize = dev->vmm.va_limit;
+  vas_params.bigPageSize = 0;
+
+  res = nv_rm_alloc(dev, gsp, dev->rm_handles.client, dev->rm_handles.device, NV_RM_HANDLE_VASPACE, FERMI_VASPACE_A, &vas_params, sizeof(vas_params));
+  if (res != 0) {
+    kprintf("[NV/RM] Error: Failed to allocate FERMI_VASPACE_A (%d)\n", res);
+    return res;
+  }
+  dev->rm_handles.vaspace = NV_RM_HANDLE_VASPACE;
+  kprintf("[NV/RM] FERMI_VASPACE_A allocated (Handle: 0x%08x)\n", dev->rm_handles.vaspace);
+
+  NV0080_CTRL_DMA_SET_PAGE_DIRECTORY_PARAMS set_pdb_params;
+  memset(&set_pdb_params, 0, sizeof(set_pdb_params));
+  set_pdb_params.physAddress = dev->vmm.pdb.phys_addr;
+  set_pdb_params.numEntries = 4;
+  set_pdb_params.flags = NV0080_CTRL_DMA_SET_PAGE_DIRECTORY_FLAGS_APERTURE_SYSMEM_COH;
+  set_pdb_params.hVASpace = dev->rm_handles.vaspace;
+  set_pdb_params.subDeviceId = 0;
+
+  res = nv_rm_control(dev, gsp, dev->rm_handles.client, dev->rm_handles.device, NV0080_CTRL_CMD_DMA_SET_PAGE_DIRECTORY, &set_pdb_params, sizeof(set_pdb_params));
+  if (res != 0) {
+    kprintf("[NV/RM] Error: Failed to bind host PDB to GSP-RM (%d)\n", res);
+    return res;
+  }
+  kprintf("[NV/RM] Host PDB 0x%016llx registered with GSP-RM\n", dev->vmm.pdb.phys_addr);
+
+  NV2080_CTRL_FIFO_GET_DEVICE_INFO_TABLE_PARAMS fifo_tbl;
+  memset(&fifo_tbl, 0, sizeof(fifo_tbl));
+  fifo_tbl.baseIndex = 0;
+
+  res = nv_rm_control(dev, gsp, static_info->hInternalClient, static_info->hInternalSubdevice, NV2080_CTRL_CMD_FIFO_GET_DEVICE_INFO_TABLE, &fifo_tbl, sizeof(fifo_tbl));
+  if (res != 0) {
+    kprintf("[NV/RM] Error: Failed to query FIFO device info table (%d)\n", res);
+    return res;
+  }
+
+  kprintf("\n[NV/FIFO] Discovered %u Hardware Engine Entries:\n", fifo_tbl.numEntries);
+  for (uint32_t i = 0; i < fifo_tbl.numEntries; i++) {
+    uint32_t engine_type = fifo_tbl.entries[i].engineData[ENGINE_INFO_TYPE_RM_ENGINE_TYPE];
+    uint32_t runlist_id = fifo_tbl.entries[i].engineData[ENGINE_INFO_TYPE_RUNLIST];
+    kprintf("[%02u] Engine: %-12s | RM Engine Type: 0x%04x | Runlist ID: %u | PBDMAs: %u\n", i, fifo_tbl.entries[i].engineName, engine_type, runlist_id, fifo_tbl.entries[i].numPbdmas);
+  }
+  kprintf("[NV/FIFO] **END**\n\n");
+
+  return 0;
+}
+
+
+
 static void turing_execute_cpu_sequencer(const NvDevice *dev, const NvGspContext *gsp, uint8_t *slot) {
   uint32_t *seq_payload = (uint32_t *)(slot + sizeof(NvGspMsgElemHdr) + sizeof(NvGspRpcHdr));
   uint32_t cmd_idx = seq_payload[1];
@@ -325,6 +415,13 @@ static int turing_init(NvDevice *dev) {
 
   if (nv_gsp_intr_get_table(dev, &gsp_ctx, &static_info) != 0) {
     kprintf("[NV/TU] Error: Failed to query hardware interrupt table\n");
+    nv_gsp_fw_cleanup(&gsp_ctx);
+    nv_dma_free(&dev->flush_page);
+    return -1;
+  }
+
+  if (turing_rm_objects_init(dev, &gsp_ctx, &static_info) != 0) {
+    kprintf("[NV/TU] Error: RM Object hierarchy initialization failed\n");
     nv_gsp_fw_cleanup(&gsp_ctx);
     nv_dma_free(&dev->flush_page);
     return -1;

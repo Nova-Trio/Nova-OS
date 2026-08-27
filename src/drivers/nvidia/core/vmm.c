@@ -34,8 +34,9 @@ static void remove_table_page(NvVmm *vmm, uint64_t phys_addr) {
 */
 static NvMmuEntry *get_or_alloc_table(NvVmm *vmm, NvMmuEntry *parent_entry, NvMmuAperture aperture) {
   uint64_t raw_entry = ((uint64_t)parent_entry->word1 << 32) | parent_entry->word0;
+
   if ((raw_entry & 0x6ULL) != 0) {
-    uint64_t phys = (raw_entry & ~0xFULL) << 4;
+    uint64_t phys = (raw_entry & ~0xFFULL) << 4;
     return (NvMmuEntry *)(phys + HHDM_BASE);
   }
 
@@ -261,7 +262,12 @@ int nv_vmm_map(NvVmm *vmm, uint64_t gpu_va, uint64_t phys_addr, size_t size, NvM
 
     // +0: Large Page Table (64KB) PDE
     // +8: Small Page Table (4KB) PDE
+    NvMmuEntry *pd0_lpt_entry = (NvMmuEntry *)((uint8_t *)pde1 + (pde1_idx * 16) + 0);
     NvMmuEntry *pd0_spt_entry = (NvMmuEntry *)((uint8_t *)pde1 + (pde1_idx * 16) + 8);
+
+    pd0_lpt_entry->word0 = 0;
+    pd0_lpt_entry->word1 = 0;
+
     NvMmuEntry *pt = get_or_alloc_table(vmm, pd0_spt_entry, NV_MMU_APERTURE_SYS_MEM_COHERENT);
     if (!pt) {
       return -1;
@@ -293,33 +299,28 @@ int nv_vmm_unmap(NvVmm *vmm, uint64_t gpu_va, size_t size) {
     size_t pte_idx = (curr_va >> 12) & 0x1FF;
 
     uint64_t raw_pde4 = ((uint64_t)pde4[pde4_idx].word1 << 32) | pde4[pde4_idx].word0;
-    if ((raw_pde4 & 0x6ULL) == 0) {
-      continue;
-    }
+    if ((raw_pde4 & 0x6ULL) == 0) continue;
+    uint64_t pde3_phys = (raw_pde4 & ~0xFFULL) << 4;
 
-    uint64_t pde3_phys = (raw_pde4 & ~0xFULL) << 4;
     NvMmuEntry *pde3 = (NvMmuEntry *)(pde3_phys + HHDM_BASE);
     uint64_t raw_pde3 = ((uint64_t)pde3[pde3_idx].word1 << 32) | pde3[pde3_idx].word0;
-    if ((raw_pde3 & 0x6ULL) == 0) {
-      continue;
-    }
 
-    uint64_t pde2_phys = (raw_pde3 & ~0xFULL) << 4;
+    if ((raw_pde3 & 0x6ULL) == 0) continue;
+    uint64_t pde2_phys = (raw_pde3 & ~0xFFULL) << 4;
+
     NvMmuEntry *pde2 = (NvMmuEntry *)(pde2_phys + HHDM_BASE);
     uint64_t raw_pde2 = ((uint64_t)pde2[pde2_idx].word1 << 32) | pde2[pde2_idx].word0;
-    if ((raw_pde2 & 0x6ULL) == 0) {
-      continue;
-    }
 
-    uint64_t pde1_phys = (raw_pde2 & ~0xFULL) << 4;
+    if ((raw_pde2 & 0x6ULL) == 0) continue;
+    uint64_t pde1_phys = (raw_pde2 & ~0xFFULL) << 4;
+
     NvMmuEntry *pde1 = (NvMmuEntry *)(pde1_phys + HHDM_BASE);
     NvMmuEntry *pd0_spt_entry = (NvMmuEntry *)((uint8_t *)pde1 + (pde1_idx * 16) + 8);
-    uint64_t raw_pd0 = ((uint64_t)pd0_spt_entry->word1 << 32) | pd0_spt_entry->word0;
-    if ((raw_pd0 & 0x6ULL) == 0) {
-      continue;
-    }
 
-    uint64_t pt_phys = (raw_pd0 & ~0xFULL) << 4;
+    uint64_t raw_pd0 = ((uint64_t)pd0_spt_entry->word1 << 32) | pd0_spt_entry->word0;
+    if ((raw_pd0 & 0x6ULL) == 0) continue;
+    uint64_t pt_phys = (raw_pd0 & ~0xFFULL) << 4;
+
     NvMmuEntry *pt = (NvMmuEntry *)(pt_phys + HHDM_BASE);
 
     pt[pte_idx].word0 = 0;

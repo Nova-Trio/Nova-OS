@@ -3,10 +3,10 @@
 #include <stddef.h>
 
 typedef enum {
-  NV_MMU_APERTURE_VID_MEM = 0x0, // local VRAM
-  NV_MMU_APERTURE_PEER_MEM = 0x1, // Only MMU can target peer mem, this can be another PCIe device eg another GPU VRAM
-  NV_MMU_APERTURE_SYS_MEM_COHERENT = 0x2, // system RAM (cache coherency)
-  NV_MMU_APERTURE_SYS_MEM_NONCOHERENT = 0x3, // system RAM
+  NV_MMU_APERTURE_INVALID = 0x0,
+  NV_MMU_APERTURE_VID_MEM = 0x1,
+  NV_MMU_APERTURE_SYS_MEM_COHERENT = 0x2,
+  NV_MMU_APERTURE_SYS_MEM_NONCOHERENT = 0x3,
 } NvMmuAperture;
 
 #ifndef BIT_ULL

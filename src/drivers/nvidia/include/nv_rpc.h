@@ -149,10 +149,9 @@ typedef struct {
   uint32_t status;
   uint32_t paramsSize;
   uint32_t flags;
-  uint8_t  params[];
+  uint8_t reserved[4];
+  uint8_t params[];
 } __attribute__((packed)) rpc_gsp_rm_alloc_v03_00;
-
-_Static_assert(sizeof(rpc_gsp_rm_alloc_v03_00) == 28, "rpc_gsp_rm_alloc_v03_00 must be 28 bytes");
 
 typedef struct {
   uint32_t hClient;
@@ -236,6 +235,109 @@ typedef struct {
 #define NV2080_CTRL_CMD_INTERNAL_INTR_GET_KERNEL_TABLE (0x20800a5c)
 #define NV2080_CTRL_INTERNAL_INTR_MAX_TABLE_SIZE 128U
 #define NV2080_INTR_CATEGORY_ENUM_COUNT 7U
+
+#define NV01_ROOT_CLIENT 0x00000041U
+#define NV01_DEVICE_0 0x00000080U
+#define NV20_SUBDEVICE_0 0x00002080U
+#define FERMI_VASPACE_A 0x000090F1U
+#define AMPERE_CHANNEL_GPFIFO_A 0x0000C56FU
+#define TURING_DMA_COPY_A 0x0000C5B5U
+
+#define NV_RM_HANDLE_CLIENT 0xCAFE0001U
+#define NV_RM_HANDLE_DEVICE 0xCAFE0080U
+#define NV_RM_HANDLE_SUBDEVICE 0xCAFE2080U
+#define NV_RM_HANDLE_VASPACE 0xCAFE90F1U
+
+#define NV0080_CTRL_CMD_GPU_GET_CLASSLIST 0x00800201U
+#define NV0080_CTRL_GPU_CLASSLIST_MAX_SIZE 256U
+typedef struct {
+  uint32_t numClasses;
+  uint32_t classList[NV0080_CTRL_GPU_CLASSLIST_MAX_SIZE];
+} NV0080_CTRL_GPU_GET_CLASSLIST_PARAMS;
+
+#define NV0080_CTRL_CMD_GPU_GET_NUM_SUBDEVICES  0x00800280U
+
+typedef struct {
+  uint32_t numSubDevices;
+} NV0080_CTRL_GPU_GET_NUM_SUBDEVICES_PARAMS;
+_Static_assert(sizeof(NV0080_CTRL_GPU_GET_NUM_SUBDEVICES_PARAMS) == 4, "Must be 4 bytes");
+
+#define NV_PROC_NAME_MAX_LENGTH 100U
+typedef struct {
+  uint32_t hClient;
+  uint32_t processID;
+  char processName[NV_PROC_NAME_MAX_LENGTH];
+  uint64_t pOsPidInfo __attribute__((aligned(8)));
+} __attribute__((packed, aligned(8))) NV0000_ALLOC_PARAMETERS;
+
+#define NV_DEVICE_ALLOCATION_VAMODE_MULTIPLE_VASPACES 0x00000002U
+typedef struct {
+  uint32_t deviceId;
+  uint32_t hClientShare;
+  uint32_t hTargetClient;
+  uint32_t hTargetDevice;
+  uint32_t flags;
+  uint64_t vaSpaceSize __attribute__((aligned(8)));
+  uint64_t vaStartInternal __attribute__((aligned(8)));
+  uint64_t vaLimitInternal __attribute__((aligned(8)));
+  uint32_t vaMode;
+} __attribute__((packed, aligned(8))) NV0080_ALLOC_PARAMETERS;
+
+typedef struct {
+  uint32_t subDeviceId;
+} __attribute__((packed, aligned(8))) NV2080_ALLOC_PARAMETERS;
+
+#define NV_VASPACE_ALLOCATION_INDEX_GPU_NEW 0x00U
+#define NV_VASPACE_ALLOCATION_FLAGS_IS_EXTERNALLY_OWNED (1U << 3)
+typedef struct {
+  uint32_t index;
+  uint32_t flags;
+  uint64_t vaSize __attribute__((aligned(8)));
+  uint64_t vaStartInternal __attribute__((aligned(8)));
+  uint64_t vaLimitInternal __attribute__((aligned(8)));
+  uint32_t bigPageSize;
+  uint64_t vaBase __attribute__((aligned(8)));
+} __attribute__((packed, aligned(8))) NV_VASPACE_ALLOCATION_PARAMETERS;
+
+#define NV0080_CTRL_CMD_DMA_SET_PAGE_DIRECTORY  0x00801813U
+#define NV0080_CTRL_DMA_SET_PAGE_DIRECTORY_FLAGS_APERTURE_SYSMEM_COH 0x00000001U
+typedef struct {
+  uint64_t physAddress __attribute__((aligned(8)));
+  uint32_t numEntries;
+  uint32_t flags;
+  uint32_t hVASpace;
+  uint32_t chId;
+  uint32_t subDeviceId;
+  uint32_t pasid;
+} __attribute__((packed, aligned(8))) NV0080_CTRL_DMA_SET_PAGE_DIRECTORY_PARAMS;
+
+#define NV0080_CTRL_CMD_DMA_UNSET_PAGE_DIRECTORY 0x00801814U
+typedef struct {
+  uint32_t hVASpace;
+  uint32_t subDeviceId;
+} __attribute__((packed, aligned(8))) NV0080_CTRL_DMA_UNSET_PAGE_DIRECTORY_PARAMS;
+
+#define NV2080_CTRL_CMD_FIFO_GET_DEVICE_INFO_TABLE 0x20801112U
+#define NV2080_CTRL_FIFO_GET_DEVICE_INFO_TABLE_MAX_ENTRIES 32U
+#define ENGINE_INFO_TYPE_ENG_DESC 0
+#define ENGINE_INFO_TYPE_RM_ENGINE_TYPE 2
+#define ENGINE_INFO_TYPE_RUNLIST 3
+
+typedef struct {
+  uint32_t engineData[16];
+  uint32_t pbdmaIds[2];
+  uint32_t pbdmaFaultIds[2];
+  uint32_t numPbdmas;
+  char engineName[16];
+} NV2080_CTRL_FIFO_DEVICE_ENTRY;
+
+typedef struct {
+  uint32_t baseIndex;
+  uint32_t numEntries;
+  uint8_t  bMore;
+  uint8_t  pad[3];
+  NV2080_CTRL_FIFO_DEVICE_ENTRY entries[32];
+} NV2080_CTRL_FIFO_GET_DEVICE_INFO_TABLE_PARAMS;
 
 typedef struct {
   uint16_t engineIdx;
@@ -451,3 +553,7 @@ int nv_rpc_status_to_errno(uint32_t rpc_status);
 int nv_gsp_get_static_info(const NvDevice *dev, NvGspContext *gsp, GspStaticConfigInfo *out_info);
 void nv_gsp_dump_static_info(const GspStaticConfigInfo *info);
 int nv_gsp_intr_get_table(const NvDevice *dev, NvGspContext *gsp, const GspStaticConfigInfo *static_info);
+
+int nv_rm_alloc(const NvDevice *dev, NvGspContext *gsp, uint32_t hClient, uint32_t hParent, uint32_t hObject, uint32_t hClass, void *params, uint32_t params_size);
+int nv_rm_control(const NvDevice *dev, NvGspContext *gsp, uint32_t hClient, uint32_t hObject, uint32_t cmd, void *params, uint32_t params_size);
+int nv_rm_free(const NvDevice *dev, NvGspContext *gsp, uint32_t hClient, uint32_t hParent, uint32_t hObject);

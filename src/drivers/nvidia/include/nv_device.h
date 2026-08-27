@@ -23,6 +23,14 @@ typedef struct {
   uint64_t size;
 } NvBar;
 
+typedef struct {
+  uint32_t client; // Root Client Handle
+  uint32_t device; // Device Handle
+  uint32_t subdevice; // SubDevice Handle
+  uint32_t vaspace; // User VASpace Handle
+} NvRmHandles;
+
+
 struct NvDevice;
 
 // For later, supporting multiple architectures
@@ -42,6 +50,7 @@ typedef struct NvDevice {
   NvDmaBuffer bar1_inst;
   NvDmaBuffer flush_page;
   const NvArchOps *ops;
+  NvRmHandles rm_handles;
   struct NvDevice *next;
 } NvDevice;
 
