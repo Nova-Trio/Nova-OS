@@ -32,6 +32,7 @@ static inline void wrmsr(uint32_t msr, uint64_t value) {
   __asm__ volatile("wrmsr" : : "c"(msr), "a"((uint32_t)value), "d"((uint32_t)(value >> 32)) : "memory");
 }
 
+// use tss_set_rsp0 instead
 static void tss_load_rsp0(void) {
   Gdtr gdtr;
   uint16_t tr;
@@ -114,7 +115,8 @@ void syscall_init(void) {
 }
 
 void syscall_test(void) {
-  tss_load_rsp0();
+  //tss_load_rsp0();
+  tss_set_rsp0((uint64_t)g_kernel_stack + sizeof(g_kernel_stack));
   PageDirectory pml4 = vmm_get_kernel_pml4();
   void *code_phys = pmm_alloc_frames(1);
   void *stack_phys = pmm_alloc_frames(1);

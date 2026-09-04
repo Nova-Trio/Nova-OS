@@ -27,6 +27,9 @@ uint64_t vmm_virt_to_phys(PageDirectory pml4, uint64_t virt);
 PageDirectory vmm_get_kernel_pml4(void);
 void vmm_switch_pml4(PageDirectory pml4);
 
+PageDirectory vmmCreateAddressSpace(void);
+void vmmDestroyAddressSpace(PageDirectory pml4);
+
 static inline void vmm_invlpg(uint64_t virt) {
   __asm__ volatile("invlpg (%0)" : : "r"(virt) : "memory");
 }

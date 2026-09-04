@@ -1,5 +1,7 @@
 #include "vmm.h"
+#include "bootinfo.h"
 #include "pmm.h"
+#include <stdint.h>
 
 #define PTE_ADDR_MASK 0x000FFFFFFFFFF000ULL
 
@@ -217,4 +219,67 @@ PageDirectory vmm_get_kernel_pml4(void) {
 void vmm_switch_pml4(PageDirectory pml4) {
   uint64_t pml4_phys = (uint64_t)pml4 - HHDM_BASE;
   __asm__ volatile("mov %0, %%cr3" : : "r"(pml4_phys) : "memory");
+}
+
+PageDirectory vmmCreateAddressSpace(void){
+  void* frame = pmm_alloc_frame();
+  if(!frame) return NULL;
+
+  PageDirectory pml4 = (PageDirectory)((uint64_t)frame + HHDM_BASE);
+
+  for (size_t i = 0; i < 256; i++) {
+    pml4[i] = 0;
+  }
+
+  for (size_t i = 256; i < 512; i++) {
+    pml4[i] = g_kernel_pml4[i];
+  }
+
+  return pml4;
+}
+
+void vmmDestroyAddressSpace(PageDirectory pml4){
+  if (!pml4 || pml4 == g_kernel_pml4) {
+    return;
+  }
+
+  for (size_t pml4_idx = 0; pml4_idx < 256; pml4_idx++) {
+    if (!(pml4[pml4_idx] & VMM_FLAG_PRESENT)) {
+      continue;
+    }
+
+    uint64_t pdpt_phys = pml4[pml4_idx] & PTE_ADDR_MASK;
+    uint64_t *pdpt = (uint64_t *)(pdpt_phys + HHDM_BASE);
+
+    for (size_t pdpt_idx = 0; pdpt_idx < 512; pdpt_idx++) {
+      if (!(pdpt[pdpt_idx] & VMM_FLAG_PRESENT) || (pdpt[pdpt_idx] & VMM_FLAG_HUGE)) {
+        continue;
+      }
+
+      uint64_t pd_phys = pdpt[pdpt_idx] & PTE_ADDR_MASK;
+      uint64_t *pd = (uint64_t *)(pd_phys + HHDM_BASE);
+
+      for (size_t pd_idx = 0; pd_idx < 512; pd_idx++) {
+        if (!(pd[pd_idx] & VMM_FLAG_PRESENT) || (pd[pd_idx] & VMM_FLAG_HUGE)) {
+          continue;
+        }
+
+        uint64_t pt_phys = pd[pd_idx] & PTE_ADDR_MASK;
+        uint64_t *pt = (uint64_t *)(pt_phys + HHDM_BASE);
+
+        for (size_t pt_idx = 0; pt_idx < 512; pt_idx++) {
+          if (pt[pt_idx] & VMM_FLAG_PRESENT) {
+            uint64_t frame = pt[pt_idx] & PTE_ADDR_MASK;
+            pmm_free_frame((void *)frame);
+          }
+        }
+        pmm_free_frame((void *)pt_phys);
+      }
+      pmm_free_frame((void *)pd_phys);
+    }
+    pmm_free_frame((void *)pdpt_phys);
+  }
+
+  uint64_t pml4_phys = (uint64_t)pml4 - HHDM_BASE;
+  pmm_free_frame((void *)pml4_phys);
 }

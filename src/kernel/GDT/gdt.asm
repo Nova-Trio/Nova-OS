@@ -3,7 +3,7 @@ global gdt_load_tss
 
 section .text
 
-gdt_load;
+gdt_load:
 lgdt [rdi]
 
 mov ds, dx

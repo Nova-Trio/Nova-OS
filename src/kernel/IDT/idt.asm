@@ -1,6 +1,7 @@
 global idt_load
 global isr_table
 extern interrupt_dispatch
+extern schedPreemptFromInterrupt
 
 section .text
 
@@ -52,6 +53,9 @@ push r15
 mov rdi, rsp
 cld
 call interrupt_dispatch
+
+mov rdi, rsp
+call schedPreemptFromInterrupt
 
 pop r15
 pop r14

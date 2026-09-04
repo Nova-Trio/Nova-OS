@@ -56,6 +56,8 @@ typedef struct {
 
 void gdt_init(void);
 void tss_set_stack(uint8_t ist_index, uint64_t stack_top);
+void tss_set_rsp0(uint64_t stack_top);
 
 extern void gdt_load(const Gdtr *gdtr, uint16_t code_sel, uint16_t data_sel);
 extern void gdt_load_tss(uint16_t tss_sel);
+

@@ -3,6 +3,7 @@
 #include <gdt.h>
 #include <idt.h>
 #include <pmm.h>
+#include <stdint.h>
 #include <vmm.h>
 #include <heap.h>
 #include <acpi.h>
@@ -14,6 +15,7 @@
 #include <gpt.h>
 #include <fat32.h>
 #include <module.h>
+#include <sched.h>
 
 extern void syscall_init(void);
 extern void syscall_test(void);
@@ -23,6 +25,7 @@ static volatile uint64_t g_timer_ticks = 0;
 static void timer_interrupt_handler(Registers *regs) {
   (void)regs;
   g_timer_ticks++;
+  schedTick();
   lapic_eoi();
 }
 
@@ -35,6 +38,23 @@ static void print_dir_entry(const Fat32DirEntry *entry, void *context) {
   }
 }
 
+
+static void fpu_init(void){
+  uint64_t cr0;
+  uint64_t cr4;
+
+  __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
+  cr0 &= ~(1ULL << 2);
+  cr0 |= (1ULL << 1);
+  __asm__ volatile("mov %0, %%cr0" : : "r"(cr0) : "memory");
+
+  __asm__ volatile("mov %%cr4, %0" : "=r"(cr4));
+  cr4 |= (1ULL << 9);
+  cr4 |= (1ULL << 10);
+  __asm__ volatile("mov %0, %%cr4" : : "r"(cr4) : "memory");
+
+  __asm__ volatile("fninit" : : : "memory");
+}
 
 __attribute__((noreturn)) void _start(BootInfo *boot_info) {
   for (uint32_t i = 0; i < 256; i++) {
@@ -51,6 +71,7 @@ __attribute__((noreturn)) void _start(BootInfo *boot_info) {
 
   gdt_init();
   idt_init();
+  fpu_init();
   pmm_init(boot_info);
   vmm_init(boot_info);
   heap_init();
@@ -66,6 +87,8 @@ __attribute__((noreturn)) void _start(BootInfo *boot_info) {
   acpi_dump_tables();
   hpet_init();
   lapic_init();
+
+  schedInit();
 
   idt_register_handler(LAPIC_VECTOR_TIMER, timer_interrupt_handler);
   lapic_timer_start(100, LAPIC_VECTOR_TIMER);
@@ -93,7 +116,7 @@ __attribute__((noreturn)) void _start(BootInfo *boot_info) {
 
   syscall_init();
   kprintf("syscall test\n");
-  syscall_test();
+  //syscall_test();
 
 
 

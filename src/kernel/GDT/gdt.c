@@ -29,6 +29,10 @@ void tss_set_stack(uint8_t ist_index, uint64_t stack_top) {
   }
 }
 
+void tss_set_rsp0(uint64_t stack_top){
+  g_tss.rsp[0] = stack_top;
+}
+
 void gdt_init(void) {
   for (size_t i = 0; i < sizeof(Tss); i++) {
     ((uint8_t *)&g_tss)[i] = 0;
