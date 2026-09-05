@@ -16,6 +16,7 @@
 #include <fat32.h>
 #include <module.h>
 #include <sched.h>
+#include <nag.h>
 
 extern void syscall_init(void);
 extern void syscall_test(void);
@@ -107,12 +108,15 @@ __attribute__((noreturn)) void _start(BootInfo *boot_info) {
 
   void *nv_driver_data = NULL;
   size_t nv_driver_size = 0;
-  if (fs_read_file("/nova/drivers/nvidia.elf", &nv_driver_data, &nv_driver_size) == 0 && nv_driver_data) {
+  if (fs_read_file("/nova/drivers/virtiogpu.elf", &nv_driver_data, &nv_driver_size) == 0 && nv_driver_data) {
     module_load("nvidia", nv_driver_data, nv_driver_size);
     kfree(nv_driver_data);
   } else {
-    kprintf("Could not read /nova/drivers/nvidia.elf\n");
+    kprintf("Could not read /nova/drivers/virtiogpu.elf\n");
   }
+
+
+
 
   syscall_init();
   kprintf("syscall test\n");

@@ -9,6 +9,8 @@
 #include <hpet.h>
 #include <pcie.h>
 #include <fat32.h>
+#include <sched.h>
+#include <nag.h>
 
 extern const KernelSymbol __start_kernel_syms[];
 extern const KernelSymbol __stop_kernel_syms[];
@@ -87,3 +89,12 @@ EXPORT_SYMBOL(lapic_get_id);
 EXPORT_SYMBOL(fs_read);
 EXPORT_SYMBOL(fs_list_dir);
 EXPORT_SYMBOL(pmm_alloc_aligned_frames);
+EXPORT_SYMBOL(schedYield);
+EXPORT_SYMBOL(schedSleep);
+EXPORT_SYMBOL(schedPreemptDisable);
+EXPORT_SYMBOL(schedPreemptEnable);
+EXPORT_SYMBOL(schedCurrent);
+EXPORT_SYMBOL(schedCreateThread);
+EXPORT_SYMBOL(nagRegisterAdapter);
+EXPORT_SYMBOL(nagUnregisterAdapter);
+EXPORT_SYMBOL(nagGetAdapter);

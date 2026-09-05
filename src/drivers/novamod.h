@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include "../kernel/nag/nag.h"
 
 #define PAGE_SIZE 4096ULL
 #define HHDM_BASE 0xFFFF800000000000ULL
@@ -74,6 +75,9 @@
 #define FAT_ATTR_DIRECTORY 0x10
 #define FAT_ATTR_ARCHIVE 0x20
 
+#define SCHED_DEFAULT_QUANTUM 10
+#define SCHED_KSTACK_SIZE (4 * PAGE_SIZE)
+
 
 typedef struct {
   uint64_t r15, r14, r13, r12, r11, r10, r9, r8;
@@ -134,7 +138,63 @@ typedef struct {
   uint8_t  is_directory;
 } Fat32DirEntry;
 
+typedef enum {
+  THREAD_STATE_UNUSED = 0,
+  THREAD_STATE_READY,
+  THREAD_STATE_RUNNING,
+  THREAD_STATE_BLOCKED,
+  THREAD_STATE_SLEEPING,
+  THREAD_STATE_ZOMBIE
+} ThreadState;
+
+typedef struct {
+  uint64_t r15;
+  uint64_t r14;
+  uint64_t r13;
+  uint64_t r12;
+  uint64_t rbp;
+  uint64_t rbx;
+  uint64_t rip;
+} __attribute__((packed)) Context;
+
 typedef uint64_t *PageDirectory;
+
+struct Process;
+
+typedef struct Thread {
+  uint64_t rsp;
+  uint64_t kstackBase;
+  uint64_t kstackTop;
+  uint64_t userRsp;
+
+  uint32_t tid;
+  ThreadState state;
+  uint32_t timeSlice;
+  uint32_t defaultSlice;
+
+  volatile uint32_t needResched;
+  volatile uint32_t preemptCount;
+
+  uint64_t sleepTargetTicks;
+
+  struct Process *process;
+  struct Thread *next;
+  struct Thread *prev;
+
+  uint8_t fpuState[512] __attribute__((aligned(16)));
+} Thread;
+
+typedef struct Process {
+  uint32_t pid;
+  PageDirectory pml4;
+  uint64_t pml4_phys;
+  char name[32];
+
+  Thread *threads;
+  struct Process *next;
+  struct Process *prev;
+} Process;
+
 typedef void (*InterruptHandler)(Registers *regs);
 typedef void (*Fat32DirCallback)(const Fat32DirEntry *entry, void *context);
 
@@ -204,6 +264,13 @@ int fs_read_file(const char *path, void **out_buf, size_t *out_size);
 int fs_stat(const char *path, Fat32DirEntry *out_entry);
 int fs_read(const char *path, uint64_t offset, size_t size, void *buf, size_t *bytes_read);
 int fs_list_dir(const char *path, Fat32DirCallback callback, void *context);
+
+void schedYield(void);
+void schedSleep(uint64_t ticks);
+void schedPreemptDisable(void);
+void schedPreemptEnable(void);
+struct Thread *schedCurrent(void);
+struct Thread *schedCreateThread(struct Process *proc, void (*entry)(void *), void *arg, int isUser);
 
 int driver_init(void);
 void driver_exit(void);

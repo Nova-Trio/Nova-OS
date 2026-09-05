@@ -154,9 +154,13 @@ run-debug: $(IMG)
 	qemu-system-x86_64 -bios $(OVMF) -drive file=$(IMG),format=raw,if=none,id=nvm0 -device nvme,serial=1234ffff,drive=nvm0 $(QEMU_CPU) $(QEMU_ACCEL) -s -S -serial stdio
 	reset
 
+run-virtio: $(IMG)
+	qemu-system-x86_64 -m 1G -bios $(OVMF) -drive file=$(IMG),format=raw,if=none,id=nvm0 -device nvme,serial=1234ffff,drive=nvm0 -object memory-backend-memfd,id=mem1,size=1G,share=on \
+	-vga none -device virtio-vga-gl,hostmem=1G,blob=true,venus=true $(QEMU_CPU) $(QEMU_ACCEL) -M q35 -display sdl,gl=on
 
 run-vfio: $(IMG)
-	sudo qemu-system-x86_64 -m 512M -bios $(OVMF) -drive file=$(IMG),format=raw,if=none,id=nvm0 -device nvme,serial=1234ffff,drive=nvm0 $(QEMU_CPU) $(QEMU_ACCEL) -M q35 -device pcie-root-port,id=root_port1,chassis=1,slot=1,bus=pcie.0 -device vfio-pci,host=01:00.0,bus=root_port1,multifunction=on,romfile=./gpu.rom -serial stdio
+	sudo qemu-system-x86_64 -m 1G -bios $(OVMF) -drive file=$(IMG),format=raw,if=none,id=nvm0 -device nvme,serial=1234ffff,drive=nvm0 $(QEMU_CPU) $(QEMU_ACCEL) -M q35 \
+	-device pcie-root-port,id=root_port1,chassis=1,slot=1,bus=pcie.0 -device vfio-pci,host=01:00.0,bus=root_port1,multifunction=on,romfile=./gpu.rom -serial stdio
 	reset
 clean:
 	rm -rf $(BUILD_DIR) $(EFI) $(KERNEL) $(IMG)
