@@ -1,5 +1,9 @@
 #include <novamod.h>
-#include "virtioGpu.h"
+#include <stdint.h>
+#include <string.h>
+#include <virtioGpu.h>
+#include <virtqueue.h>
+#include <caps.h>
 
 static VirtioGpuDevice* gGpuDevice = NULL;
 
@@ -218,10 +222,15 @@ static int fillNagAdapter(VirtioGpuDevice *gpu) {
 
   if (gpu->negotiatedFeatures & VIRTIO_GPU_F_VIRGL) {
     adapter->caps |= NAG_CAP_SUPPORTS_3D | NAG_CAP_SUPPORTS_COMP;
-    if (gpu->negotiatedFeatures & VIRTIO_GPU_F_CONTEXT_INIT) {
+
+    if (gpu->hasVenus) {
       adapter->caps |= NAG_CAP_GPGPU;
+      memcpy(adapter->name, "VirtIO GPU (3D, Venus)", 23);
+    } else if (gpu->hasVirgl) {
+      memcpy(adapter->name, "VirtIO GPU (3D, VirGL)", 23);
+    } else {
+      memcpy(adapter->name, "VirtIO GPU (3D; unknown)", 25);
     }
-    memcpy(adapter->name, "VirtIO GPU (3D; unknown)", 25);
   } else {
     memcpy(adapter->name, "VirtIO GPU (2D)", 16);
   }
@@ -273,28 +282,56 @@ int virtioGpuProbe(const PciDevice *pciDev) {
     return -1;
   }
 
+  if (virtqueueCreate(gpu, 0, &gpu->controlQueue) != 0) {
+    unmapAllBars(gpu);
+    kfree(gpu);
+    return -1;
+  }
+
+  if (virtqueueCreate(gpu, 1, &gpu->cursorQueue) != 0) {
+    virtqueueDestroy(gpu->controlQueue);
+    unmapAllBars(gpu);
+    kfree(gpu);
+    return -1;
+  }
+
+  gpu->ctrlDmaPhys = pmm_alloc_frame();
+  if (!gpu->ctrlDmaPhys) {
+    virtqueueDestroy(gpu->cursorQueue);
+    virtqueueDestroy(gpu->controlQueue);
+    unmapAllBars(gpu);
+    kfree(gpu);
+    return -1;
+  }
+  gpu->ctrlDmaVirt = (void *)((uint64_t)gpu->ctrlDmaPhys + HHDM_BASE);
+
+  uint8_t status = gpu->commonCfg->deviceStatus | VIRTIO_STATUS_DRIVER_OK;
+  gpu->commonCfg->deviceStatus = status;
+  __asm__ volatile("mfence" ::: "memory");
+
+  virtioGpuDetectCapsets(gpu);
+
   if (fillNagAdapter(gpu) != 0) {
+    pmm_free_frame(gpu->ctrlDmaPhys);
+    virtqueueDestroy(gpu->cursorQueue);
+    virtqueueDestroy(gpu->controlQueue);
     unmapAllBars(gpu);
     kfree(gpu);
     return -1;
   }
 
   if (nagRegisterAdapter(&gpu->adapter) != 0) {
-    kprintf("[VIRTIO-GPU] Failed to register adapter with NAG\n");
-    if (gpu->adapter.engines) {
-      kfree(gpu->adapter.engines);
-    }
-    if (gpu->adapter.disp.heads) {
-      kfree(gpu->adapter.disp.heads);
-    }
+    if (gpu->adapter.engines) kfree(gpu->adapter.engines);
+    if (gpu->adapter.disp.heads) kfree(gpu->adapter.disp.heads);
+    pmm_free_frame(gpu->ctrlDmaPhys);
+    virtqueueDestroy(gpu->cursorQueue);
+    virtqueueDestroy(gpu->controlQueue);
     unmapAllBars(gpu);
     kfree(gpu);
     return -1;
   }
 
   gGpuDevice = gpu;
-  kprintf("[VIRTIO-GPU] Registered NAG Adapter ID %u: \"%s\" (Scanouts: %u, Engines: %u)\n", gpu->adapter.adapterId, gpu->adapter.name, gpu->adapter.disp.headCount, gpu->adapter.engineCount);
-
   return 0;
 }
 
@@ -305,9 +342,26 @@ void virtioGpuRemove(void) {
 
   if (gGpuDevice->commonCfg) {
     gGpuDevice->commonCfg->deviceStatus = 0;
+    __asm__ volatile("mfence" ::: "memory");
   }
 
   nagUnregisterAdapter(&gGpuDevice->adapter);
+
+  if (gGpuDevice->controlQueue) {
+    virtqueueDestroy(gGpuDevice->controlQueue);
+    gGpuDevice->controlQueue = NULL;
+  }
+
+  if (gGpuDevice->ctrlDmaPhys) {
+    pmm_free_frame(gGpuDevice->ctrlDmaPhys);
+    gGpuDevice->ctrlDmaPhys = NULL;
+    gGpuDevice->ctrlDmaVirt = NULL;
+  }
+
+  if (gGpuDevice->cursorQueue) {
+    virtqueueDestroy(gGpuDevice->cursorQueue);
+    gGpuDevice->cursorQueue = NULL;
+  }
 
   if (gGpuDevice->adapter.engines) {
     kfree(gGpuDevice->adapter.engines);
