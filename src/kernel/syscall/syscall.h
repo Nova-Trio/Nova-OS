@@ -10,6 +10,10 @@
 #define SYS_YIELD 24
 #define SYS_EXIT 60
 #define SYSCALL_HELLO 100
+#define SYS_NAG_DISPATCH 110
+#define SYS_DRIVER_OPEN 120
+#define SYS_DRIVER_IOCTL 121
+#define SYS_DRIVER_CLOSE 122
 
 #define PROT_NONE 0x0
 #define PROT_READ 0x1
@@ -41,3 +45,9 @@ void sysExit(int Code) __attribute__((noreturn));
 void syscallInit(void);
 int64_t syscallDispatch(Registers *Regs);
 void syscallEntry(void);
+
+int64_t sysNagDispatch(uint32_t adapterId, uint32_t op, void* arg, size_t argSize);
+
+int64_t sysDriverOpen(const char *name);
+int64_t sysDriverIoctl(int handle, uint32_t cmd, void *arg, size_t argSize);
+int64_t sysDriverClose(int handle);

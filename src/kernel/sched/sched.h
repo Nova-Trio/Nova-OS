@@ -5,6 +5,8 @@
 #include <idt.h>
 #include <spinlock.h>
 #include <gdt.h>
+#include <driver.h>
+
 
 #define SCHED_DEFAULT_QUANTUM 10
 #define SCHED_KSTACK_SIZE (4 * PAGE_SIZE)
@@ -87,6 +89,8 @@ typedef struct Process {
     Spinlock vmaLock;
     Spinlock vma_lock;
   };
+
+  DriverHandleTable handleTable;
 
   Thread *threads;
   struct Process *next;

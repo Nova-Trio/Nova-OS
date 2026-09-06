@@ -141,10 +141,12 @@ void virtioGpuDetectCapsets(VirtioGpuDevice *gpu) {
 
         if (venusCaps.vkXmlVersion > 0) {
           gpu->hasVenus = 1;
+          gpu->apiver = venusCaps.vkXmlVersion;
         }
       }
     } else if (respInfo.capsetId == VIRTIO_GPU_CAPSET_VIRGL || respInfo.capsetId == VIRTIO_GPU_CAPSET_VIRGL2) {
       gpu->hasVirgl = 1;
+      gpu->apiver = 0x1006000; // OpenGL 4.6; everyone supports it nowdays
     }
   }
 }

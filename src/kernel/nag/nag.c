@@ -94,3 +94,22 @@ struct GpuAdapter *nagGetAdapter(uint32_t adapter_id) {
   spin_unlock_irqrestore(&nagLock, rflags);
   return adapter;
 }
+
+int nagDispatch(uint32_t adapterId, NagOp op, void *arg, size_t argSize) {
+  uint64_t rflags = spin_lock_irqsave(&nagLock);
+
+  if (adapterId >= adapterCapacity) {
+    spin_unlock_irqrestore(&nagLock, rflags);
+    return -1;
+  }
+
+  struct GpuAdapter *adapter = adapters[adapterId];
+  if (!adapter || !adapter->dispatchOp) {
+    spin_unlock_irqrestore(&nagLock, rflags);
+    return -1;
+  }
+
+  spin_unlock_irqrestore(&nagLock, rflags);
+
+  return adapter->dispatchOp(adapter, op, arg, argSize);
+}

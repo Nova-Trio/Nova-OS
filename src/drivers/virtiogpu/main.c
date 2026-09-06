@@ -258,6 +258,8 @@ static int fillNagAdapter(VirtioGpuDevice *gpu) {
   memcpy(adapter->engines[0].name, "VirtIO Control Queue", 21);
   adapter->engines[0].engine = gpu;
 
+  adapter->dispatchOp = virtioGpuDispatch;
+
   return 0;
 }
 

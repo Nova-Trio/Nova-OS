@@ -78,6 +78,10 @@
 #define SCHED_DEFAULT_QUANTUM 10
 #define SCHED_KSTACK_SIZE (4 * PAGE_SIZE)
 
+#define validate_user_range validateUserRange
+#define copy_from_user copyFromUser
+#define copy_to_user copyToUser
+
 
 typedef struct {
   uint64_t r15, r14, r13, r12, r11, r10, r9, r8;
@@ -195,6 +199,13 @@ typedef struct Process {
   struct Process *prev;
 } Process;
 
+typedef struct DriverOps {
+  int (*open)(void *driverPriv, void **sessionPriv);
+  int (*close)(void *sessionPriv);
+  int64_t (*ioctl)(void *sessionPriv, uint32_t cmd, void *arg, size_t argSize);
+} DriverOps;
+
+
 typedef void (*InterruptHandler)(Registers *regs);
 typedef void (*Fat32DirCallback)(const Fat32DirEntry *entry, void *context);
 
@@ -271,6 +282,14 @@ void schedPreemptDisable(void);
 void schedPreemptEnable(void);
 struct Thread *schedCurrent(void);
 struct Thread *schedCreateThread(struct Process *proc, void (*entry)(void *), void *arg, int isUser);
+
+int validateUserRange(const void *userPtr, size_t size, int write);
+int copyFromUser(void *dst, const void *src, size_t n);
+int copyToUser(void *dst, const void *src, size_t n);
+
+
+int driverRegister(const char *name, const DriverOps *ops, void *driverPriv);
+void driverUnregister(const char *name);
 
 int driver_init(void);
 void driver_exit(void);

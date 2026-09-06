@@ -1,8 +1,7 @@
 #pragma once
 #include <stdint.h>
-#include <stddef.h>
 
-// Nova accelerated graphics model
+// NovaOS usermode part for NAG
 
 typedef enum {
   NAG_GPU_ENGINE_TYPE_3D = 0, // 3D & compute
@@ -64,6 +63,23 @@ struct DispEngine {
   void* disp;
 };
 
+struct GpuAdapter {
+  uint32_t adapterId;
+  char name[64]; // preferably a long name instead of shortened
+  uint32_t pciVendor;
+  uint32_t pciDevice;
+
+  uint64_t caps;
+
+  struct GpuMem mem;
+  struct DispEngine disp;
+
+  uint32_t engineCount;
+  struct GpuEngine* engines;
+
+  void* priv;
+};
+
 // if a custom GAPI usermode driver is missing dont advertise support
 typedef struct GraphicsAPI {
   char name[16];
@@ -106,34 +122,12 @@ typedef struct NagGpuProps {
   uint32_t driverBuildDate; // optional
 } NagGpuProps;
 
+
+// your display driver must accept all these operations and handle them according to the support
 typedef enum {
   NAG_GPU_OP_QUERY = 0,
 
   NAG_GPU_OP_INVAL = 0xffff,
 } NagOp;
 
-struct GpuAdapter {
-  uint32_t adapterId;
-  char name[64]; // preferably a long name instead of shortened
-  uint32_t pciVendor;
-  uint32_t pciDevice;
 
-  uint64_t caps;
-
-  struct GpuMem mem;
-  struct DispEngine disp;
-
-  uint32_t engineCount;
-  struct GpuEngine* engines;
-
-  int (*dispatchOp)(struct GpuAdapter *adapter, NagOp op, void *arg, size_t argSize);
-
-  void* priv;
-};
-
-
-
-int nagRegisterAdapter(struct GpuAdapter* adapter);
-void nagUnregisterAdapter(struct GpuAdapter *adapter);
-struct GpuAdapter *nagGetAdapter(uint32_t adapter_id);
-int nagDispatch(uint32_t adapterId, NagOp op, void *arg, size_t argSize);

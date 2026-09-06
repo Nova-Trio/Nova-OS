@@ -6,6 +6,8 @@
 #include <pmm.h>
 #include <vmm.h>
 #include <console.h>
+#include <nag.h>
+#include <driver.h>
 #include "syscall.h"
 
 #define MSR_EFER 0xC0000080u
@@ -82,6 +84,18 @@ __attribute__((used)) int64_t syscallDispatch(Registers *Regs) {
     case SYSCALL_HELLO:
       kprintf("hello world\n");
       return 0;
+    
+    case SYS_NAG_DISPATCH:
+      return sysNagDispatch((uint32_t)Regs->rdi, (uint32_t)Regs->rsi, (void*)Regs->rdx, (size_t)Regs->r10);
+
+    case SYS_DRIVER_OPEN:
+      return sysDriverOpen((const char *)Regs->rdi);
+
+    case SYS_DRIVER_IOCTL:
+      return sysDriverIoctl((int)Regs->rdi, (uint32_t)Regs->rsi, (void *)Regs->rdx, (size_t)Regs->r10);
+
+    case SYS_DRIVER_CLOSE:
+      return sysDriverClose((int)Regs->rdi);
 
     default:
       kprintf("[SYSCALL] Unhandled syscall %llu from PID %u\n", Regs->rax, (schedCurrent() && schedCurrent()->process) ? schedCurrent()->process->pid : 0);

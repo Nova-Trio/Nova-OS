@@ -124,8 +124,10 @@ Process *schedCreateProcess(const char *name) {
     }
   }
 
-  proc->vmaHead = NULL;
-  spinlock_init(&proc->vmaLock);
+  proc->handleTable.handles = NULL;
+  proc->handleTable.capacity = 0;
+  proc->handleTable.count = 0;
+  spinlock_init(&proc->handleTable.lock);
 
   proc->pml4Phys = vmmVirtToPhys(vmmGetKernelPml4(), (uint64_t)proc->pml4);
   if (name) {

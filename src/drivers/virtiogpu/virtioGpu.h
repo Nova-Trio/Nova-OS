@@ -2,7 +2,7 @@
 #include <novamod.h>
 #include "virtioPci.h"
 #include "virtqueue.h"
-#include "virtioGpuProtocol.h"
+#include <virtioGpuProtocol.h>
 #include <stdint.h>
 
 typedef struct {
@@ -33,9 +33,12 @@ typedef struct VirtioGpuDevice{
 
   uint8_t hasVenus;
   uint8_t hasVirgl;
+  uint32_t apiver;
 
   struct GpuAdapter adapter;
 } VirtioGpuDevice;
 
 int virtioGpuProbe(const PciDevice *pciDev);
 void virtioGpuRemove(void);
+
+int virtioGpuDispatch(struct GpuAdapter *adapter, NagOp op, void *arg, size_t argSize);

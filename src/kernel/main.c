@@ -116,7 +116,14 @@ __attribute__((noreturn)) void _start(BootInfo *boot_info) {
     kprintf("Could not read /nova/drivers/virtiogpu.elf\n");
   }
 
-
+  void *test_driver_data = NULL;
+  size_t test_driver_size = 0;
+  if (fs_read_file("/nova/drivers/test.elf", &test_driver_data, &test_driver_size) == 0 && test_driver_data) {
+    module_load("test", test_driver_data, test_driver_size);
+    kfree(test_driver_data);
+  } else {
+    kprintf("Could not read /nova/drivers/test.elf\n");
+  }
 
 
   syscallInit();
