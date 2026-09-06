@@ -25,6 +25,9 @@
 #define GDT_USER_CODE_SELECTOR 0x20
 #define GDT_TSS_SELECTOR 0x28
 
+#define GDT_USER_DATA_RPL3 0x1B
+#define GDT_USER_CODE_RPL3 0x23
+
 typedef struct {
   uint16_t limit_low;
   uint16_t base_low;

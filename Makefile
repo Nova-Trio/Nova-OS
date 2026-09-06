@@ -27,6 +27,12 @@ DRIVER_CFLAGS = $(KERNEL_BASE_CFLAGS) $(DRIVER_API_INC)
 KERNEL_LDFLAGS = $(KERNEL_TARGET) -fuse-ld=lld -nostdlib -static -Wl,-T,src/kernel/linker.ld -Wl,-z,max-page-size=0x1000
 KERNEL = kernel.elf
 
+USER_TARGET = -target x86_64-unknown-none-elf
+USER_BASE_CFLAGS = $(USER_TARGET) -ffreestanding -fno-stack-protector -fno-builtin -fno-omit-frame-pointer -mno-red-zone -mcmodel=small -Wall -Wextra -std=c17 -MMD -MP
+USER_API_INC := -I$(SRC_DIR)/user
+USER_CFLAGS = $(USER_BASE_CFLAGS) $(USER_API_INC)
+USER_LDFLAGS = $(USER_TARGET) -fuse-ld=lld -nostdlib -static -Wl,-Ttext=0x400000 -Wl,-z,max-page-size=0x1000
+
 KERNEL_C_SRCS := $(shell find $(SRC_DIR)/kernel -name '*.c')
 KERNEL_ASM_SRCS := $(shell find $(SRC_DIR)/kernel -name '*.asm')
 
@@ -111,12 +117,40 @@ endef
 
 $(foreach drv,$(DRIVER_NAMES),$(eval $(call DRIVER_RULE,$(drv))))
 
-$(IMG): $(EFI) $(KERNEL) $(DRIVER_ELFS)
+USER_CRT0 := $(BUILD_DIR)/user/crt0.o
+
+$(USER_CRT0): $(SRC_DIR)/user/crt0.asm
+	@mkdir -p $(dir $@)
+	$(AS) $(ASFLAGS) $< -o $@
+
+USER_DIRS := $(shell find $(SRC_DIR)/user -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+USER_NAMES := $(notdir $(USER_DIRS))
+USER_ELFS := $(patsubst %, $(BUILD_DIR)/user/%.elf, $(USER_NAMES))
+
+define USER_RULE
+$$(BUILD_DIR)/user/$(1)/%.c.o: $$(SRC_DIR)/user/$(1)/%.c
+	@mkdir -p $$(dir $$@)
+	$$(CC) $$(USER_CFLAGS) $$(addprefix -I, $$(shell find $$(SRC_DIR)/user/$(1) -type d 2>/dev/null)) -c $$< -o $$@
+
+$$(BUILD_DIR)/user/$(1)/%.asm.o: $$(SRC_DIR)/user/$(1)/%.asm
+	@mkdir -p $$(dir $$@)
+	$$(AS) $$(ASFLAGS) $$< -o $$@
+
+$$(BUILD_DIR)/user/$(1).elf: $(USER_CRT0) \
+                             $$(patsubst $$(SRC_DIR)/user/$(1)/%.c, $$(BUILD_DIR)/user/$(1)/%.c.o, $$(shell find $$(SRC_DIR)/user/$(1) -name '*.c')) \
+                             $$(patsubst $$(SRC_DIR)/user/$(1)/%.asm, $$(BUILD_DIR)/user/$(1)/%.asm.o, $$(shell find $$(SRC_DIR)/user/$(1) -name '*.asm'))
+	@mkdir -p $$(dir $$@)
+	$$(CC) $$(USER_LDFLAGS) $$^ -o $$@
+endef
+
+$(foreach usr,$(USER_NAMES),$(eval $(call USER_RULE,$(usr))))
+
+$(IMG): $(EFI) $(KERNEL) $(DRIVER_ELFS) $(USER_ELFS)
 	dd if=/dev/zero of=$@ bs=1M count=128 status=none
 ifneq ($(HAVE_PARTED),)
 	parted -s $@ mklabel gpt mkpart ESP fat32 2048s 100% set 1 esp on
 	mformat -i $@@@1M -F ::
-	mmd -i $@@@1M ::/EFI ::/EFI/BOOT ::/EFI/novaos ::/nova ::/nova/drivers ::/nova/fw
+	mmd -i $@@@1M ::/EFI ::/EFI/BOOT ::/EFI/novaos ::/nova ::/nova/drivers ::/nova/fw ::/bin
 	mcopy -i $@@@1M $(EFI) ::/EFI/BOOT/BOOTX64.EFI
 	mcopy -i $@@@1M $(KERNEL) ::/EFI/novaos/$(KERNEL)
 	mcopy -i $@@@1M zap-light16.psf ::/EFI/novaos/zap-light16.psf
@@ -129,9 +163,15 @@ ifneq ($(HAVE_PARTED),)
 			mcopy -i $@@@1M "$$drv" ::/nova/drivers/$$(basename "$$drv"); \
 		fi \
 	done
+	@for usr in $(USER_ELFS); do \
+		if [ -f "$$usr" ]; then \
+			mcopy -i $@@@1M "$$usr" ::/EFI/novaos/$$(basename "$$usr"); \
+			mcopy -i $@@@1M "$$usr" ::/bin/$$(basename "$$usr"); \
+		fi \
+	done
 else
 	mformat -i $@ -F ::
-	mmd -i $@ ::/EFI ::/EFI/BOOT ::/EFI/novaos ::/nova ::/nova/drivers ::/nova/fw
+	mmd -i $@ ::/EFI ::/EFI/BOOT ::/EFI/novaos ::/nova ::/nova/drivers ::/nova/fw ::/bin
 	mcopy -i $@ $(EFI) ::/EFI/BOOT/BOOTX64.EFI
 	mcopy -i $@ $(KERNEL) ::/EFI/novaos/$(KERNEL)
 	mcopy -i $@ zap-light16.psf ::/EFI/novaos/zap-light16.psf
@@ -142,6 +182,12 @@ else
 	@for drv in $(DRIVER_ELFS); do \
 		if [ -f "$$drv" ]; then \
 			mcopy -i $@ "$$drv" ::/nova/drivers/$$(basename "$$drv"); \
+		fi \
+	done
+	@for usr in $(USER_ELFS); do \
+		if [ -f "$$usr" ]; then \
+			mcopy -i $@ "$$usr" ::/EFI/novaos/$$(basename "$$usr"); \
+			mcopy -i $@ "$$usr" ::/bin/$$(basename "$$usr"); \
 		fi \
 	done
 endif
@@ -165,7 +211,7 @@ run-vfio: $(IMG)
 clean:
 	rm -rf $(BUILD_DIR) $(EFI) $(KERNEL) $(IMG)
 
-install: $(EFI) $(KERNEL) $(DRIVER_ELFS)
+install: $(EFI) $(KERNEL) $(DRIVER_ELFS) $(USER_ELFS)
 	sudo mkdir -p $(INSTALL_DIR)
 	sudo cp $(EFI) $(INSTALL_DIR)/$(EFI)
 	sudo cp $(KERNEL) $(INSTALL_DIR)/$(KERNEL)
@@ -174,6 +220,11 @@ install: $(EFI) $(KERNEL) $(DRIVER_ELFS)
 	@for drv in $(DRIVER_ELFS); do \
 		if [ -f "$$drv" ]; then \
 			sudo cp "$$drv" $(ESP_PATH)/nova/drivers/$$(basename "$$drv"); \
+		fi \
+	done
+	@for usr in $(USER_ELFS); do \
+		if [ -f "$$usr" ]; then \
+			sudo cp "$$usr" $(INSTALL_DIR)/$$(basename "$$usr"); \
 		fi \
 	done
 run-hw: install

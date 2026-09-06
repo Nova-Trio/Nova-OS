@@ -81,6 +81,7 @@ typedef struct {
 #define EM_X86_64 62
 
 #define ET_REL 1
+#define ET_DYN 3
 
 #define SHT_NULL 0
 #define SHT_PROGBITS 1

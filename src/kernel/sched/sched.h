@@ -4,9 +4,27 @@
 #include <vmm.h>
 #include <idt.h>
 #include <spinlock.h>
+#include <gdt.h>
 
 #define SCHED_DEFAULT_QUANTUM 10
 #define SCHED_KSTACK_SIZE (4 * PAGE_SIZE)
+
+#define PERCPU_OFFSET_SELF 0
+#define PERCPU_OFFSET_KSTACK_TOP 8
+#define PERCPU_OFFSET_SCRATCH_RSP 16
+#define PERCPU_OFFSET_CURRENT_THREAD 24
+#define PERCPU_OFFSET_CPU_ID 32
+
+#define USER_STACK_TOP_DEFAULT 0x00007FFFFFFFE000ULL
+#define USER_STACK_INITIAL_SIZE (8ULL * 1024 * 1024)
+
+typedef struct {
+  uint64_t rip;
+  uint64_t cs;
+  uint64_t rflags;
+  uint64_t rsp;
+  uint64_t ss;
+} __attribute__((packed)) IretFrame;
 
 typedef enum {
   THREAD_STATE_UNUSED = 0,
@@ -55,29 +73,74 @@ typedef struct Thread {
 typedef struct Process {
   uint32_t pid;
   PageDirectory pml4;
-  uint64_t pml4_phys;
+  union {
+    uint64_t pml4Phys;
+    uint64_t pml4_phys;
+  };
   char name[32];
+
+  union {
+    Vma *vmaHead;
+    Vma *vma_head;
+  };
+  union {
+    Spinlock vmaLock;
+    Spinlock vma_lock;
+  };
 
   Thread *threads;
   struct Process *next;
   struct Process *prev;
 } Process;
 
+typedef struct PerCpu {
+  struct PerCpu *self;
+  union {
+    uint64_t kstackTop;
+    uint64_t kstack_top;
+  };
+  union {
+    uint64_t userScratchRsp;
+    uint64_t user_scratch_rsp;
+  };
+  union {
+    struct Thread *currentThread;
+    struct Thread *current_thread;
+  };
+  union {
+    uint32_t cpuId;
+    uint32_t cpu_id;
+  };
+} __attribute__((aligned(16))) PerCpu;
+
+void perCpuInit(void);
+static inline PerCpu* perCpuGet(void) {
+  PerCpu *cpu;
+  __asm__ volatile("mov %%gs:0, %0" : "=r"(cpu));
+  return cpu;
+}
+
 void schedInit(void);
-Process* schedCreateProcess(const char* name);
-Thread* schedCreateThread(Process* proc, void (*entry)(void*), void* arg, int isUser);
+Process *schedGetKernelProcess(void);
+Process *schedCreateProcess(const char *name);
+Thread *schedCreateThread(Process *proc, void (*entry)(void *), void *arg, int isUser);
+
+Thread *schedCreateUserThread(Process *proc, uint64_t entry, uint64_t userRsp, uint64_t arg);
+void userThreadTrampoline(void);
+
+Process *schedSpawn(const char *path, const char *name, const char **argv, const char **envp);
 
 void schedule(void);
-void schedYield();
-void schedTick();
+void schedYield(void);
+void schedTick(void);
 
-Thread* schedCurrent(void);
+Thread *schedCurrent(void);
 void schedPreemptDisable(void);
 void schedPreemptEnable(void);
 
 void cpuSwitchTo(Thread *prev, Thread *next);
 void threadEntryTrampoline(void);
 void schedUnlock(void);
-void schedThreadExit(void);
+void schedThreadExit(void) __attribute__((noreturn));
 void schedSleep(uint64_t ticks);
-void schedPreemptFromInterrupt(const Registers *Regs);
+void schedPreemptFromInterrupt(const Registers *regs);

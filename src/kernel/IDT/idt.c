@@ -56,7 +56,7 @@ void idt_unregister_handler(uint8_t vector) {
   g_interrupt_handlers[vector] = NULL;
 }
 
-static void default_exception_handler(Registers *regs) {
+void default_exception_handler(Registers *regs) {
   console_set_color(0x00FF4444, 0x00000000);
 
   const char *name = (regs->vector < 32) ? g_exception_names[regs->vector] : "Unknown Exception";

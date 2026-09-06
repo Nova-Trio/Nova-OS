@@ -50,12 +50,22 @@ push r13
 push r14
 push r15
 
+test qword [rsp + 144], 3
+jz .from_kernel
+swapgs
+.from_kernel:
+
 mov rdi, rsp
 cld
 call interrupt_dispatch
 
 mov rdi, rsp
 call schedPreemptFromInterrupt
+
+test qword [rsp + 144], 3
+jz .to_kernel
+swapgs
+.to_kernel:
 
 pop r15
 pop r14

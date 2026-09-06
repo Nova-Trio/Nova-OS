@@ -3,6 +3,7 @@
 #include <gdt.h>
 #include <idt.h>
 #include <pmm.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <vmm.h>
 #include <heap.h>
@@ -18,8 +19,7 @@
 #include <sched.h>
 #include <nag.h>
 
-extern void syscall_init(void);
-extern void syscall_test(void);
+extern void syscallInit(void);
 
 static volatile uint64_t g_timer_ticks = 0;
 
@@ -90,6 +90,7 @@ __attribute__((noreturn)) void _start(BootInfo *boot_info) {
   lapic_init();
 
   schedInit();
+  perCpuInit();
 
   idt_register_handler(LAPIC_VECTOR_TIMER, timer_interrupt_handler);
   lapic_timer_start(100, LAPIC_VECTOR_TIMER);
@@ -118,11 +119,11 @@ __attribute__((noreturn)) void _start(BootInfo *boot_info) {
 
 
 
-  syscall_init();
-  kprintf("syscall test\n");
-  //syscall_test();
+  syscallInit();
 
-
+  Process *testProc = schedSpawn("/EFI/novaos/test.elf", "init", NULL, NULL);
+  (void)testProc;
+  schedYield();
 
 
   //*(volatile uint32_t *)0x0 = 0x12345678;

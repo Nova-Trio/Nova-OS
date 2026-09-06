@@ -41,6 +41,7 @@ void idt_init(void);
 void idt_register_handler(uint8_t vector, InterruptHandler handler);
 void idt_unregister_handler(uint8_t vector);
 void idt_set_gate(uint8_t vector, void *isr, uint8_t type_attr, uint8_t ist);
+void default_exception_handler(Registers *regs);
 
 extern void idt_load(const Idtr *idtr);
 extern void *isr_table[IDT_ENTRIES_COUNT];
