@@ -60,6 +60,7 @@ int virtqueueCreate(VirtioGpuDevice *gpu, uint16_t queueIndex, Virtqueue **outQu
   uint16_t notifyOffset = cfg->queueNotifyOff;
   uintptr_t notifyAddr = (uintptr_t)gpu->notifyBase + (notifyOffset * gpu->notifyOffMultiplier);
   vq->notifyAddr = (volatile uint16_t *)notifyAddr;
+  vq->lock = SPINLOCK_INIT;
 
   uint64_t descPhys = (uint64_t)physBase + descOffset;
   uint64_t availPhys = (uint64_t)physBase + availOffset;
@@ -90,26 +91,39 @@ void virtqueueDestroy(Virtqueue *vq) {
   kfree(vq);
 }
 
-int virtqueueSubmit(Virtqueue *vq, uint64_t reqPhys, uint32_t reqLen, uint64_t respPhys, uint32_t respLen) {
-  if (vq->numFree < 2) {
+int virtqueueSubmitSg(Virtqueue *vq, const VirtqBuf *bufs, size_t count) {
+  if (!vq || !bufs || count == 0 || count > vq->queueSize) {
+    return -1;
+  }
+
+  uint64_t rflags = spin_lock_irqsave(&vq->lock);
+
+  if (vq->numFree < count) {
+    spin_unlock_irqrestore(&vq->lock, rflags);
     return -1;
   }
 
   uint16_t headIdx = vq->freeHead;
-  uint16_t respIdx = vq->descTable[headIdx].next;
+  uint16_t currIdx = headIdx;
+  uint16_t prevIdx = 0xFFFF;
 
-  vq->freeHead = vq->descTable[respIdx].next;
-  vq->numFree -= 2;
+  for (size_t i = 0; i < count; i++) {
+    VirtqDesc *desc = &vq->descTable[currIdx];
+    desc->addr = bufs[i].physAddr;
+    desc->len = bufs[i].len;
+    desc->flags = bufs[i].write ? VIRTQ_DESC_F_WRITE : 0;
 
-  vq->descTable[headIdx].addr = reqPhys;
-  vq->descTable[headIdx].len = reqLen;
-  vq->descTable[headIdx].flags = VIRTQ_DESC_F_NEXT;
-  vq->descTable[headIdx].next = respIdx;
+    if (i + 1 < count) {
+      desc->flags |= VIRTQ_DESC_F_NEXT;
+    }
 
-  vq->descTable[respIdx].addr = respPhys;
-  vq->descTable[respIdx].len = respLen;
-  vq->descTable[respIdx].flags = VIRTQ_DESC_F_WRITE;
-  vq->descTable[respIdx].next = 0xFFFF;
+    prevIdx = currIdx;
+    currIdx = desc->next;
+  }
+
+  vq->freeHead = currIdx;
+  vq->descTable[prevIdx].next = 0xFFFF;
+  vq->numFree -= (uint16_t)count;
 
   uint16_t availIdx = vq->availRing->idx;
   vq->availRing->ring[availIdx % vq->queueSize] = headIdx;
@@ -118,7 +132,16 @@ int virtqueueSubmit(Virtqueue *vq, uint64_t reqPhys, uint32_t reqLen, uint64_t r
   vq->availRing->idx = availIdx + 1;
   __asm__ volatile("mfence" ::: "memory");
 
+  spin_unlock_irqrestore(&vq->lock, rflags);
   return 0;
+}
+
+int virtqueueSubmit(Virtqueue *vq, uint64_t reqPhys, uint32_t reqLen, uint64_t respPhys, uint32_t respLen) {
+  VirtqBuf bufs[2] = {
+    { .physAddr = reqPhys, .len = reqLen, .write = 0 },
+    { .physAddr = respPhys, .len = respLen, .write = 1 }
+  };
+  return virtqueueSubmitSg(vq, bufs, 2);
 }
 
 void virtqueueKick(Virtqueue *vq) {
@@ -128,37 +151,46 @@ void virtqueueKick(Virtqueue *vq) {
 }
 
 int virtqueuePoll(Virtqueue *vq, uint64_t timeoutMs) {
+  if (!vq) return -1;
+
   uint64_t start = hpet_get_millis();
 
-  while (vq->lastUsedIdx == vq->usedRing->idx) {
+  while (1) {
+    uint64_t rflags = spin_lock_irqsave(&vq->lock);
+
+    if (vq->lastUsedIdx != vq->usedRing->idx) {
+      __asm__ volatile("mfence" ::: "memory");
+
+      while (vq->lastUsedIdx != vq->usedRing->idx) {
+        uint16_t usedSlot = vq->lastUsedIdx % vq->queueSize;
+        uint32_t headDesc = vq->usedRing->ring[usedSlot].id;
+
+        uint16_t curr = (uint16_t)headDesc;
+        uint16_t tail = curr;
+        uint16_t count = 1;
+
+        while (vq->descTable[tail].flags & VIRTQ_DESC_F_NEXT) {
+          tail = vq->descTable[tail].next;
+          count++;
+        }
+
+        vq->descTable[tail].next = vq->freeHead;
+        vq->freeHead = curr;
+        vq->numFree += count;
+
+        vq->lastUsedIdx++;
+      }
+
+      spin_unlock_irqrestore(&vq->lock, rflags);
+      return 0;
+    }
+
+    spin_unlock_irqrestore(&vq->lock, rflags);
+
     if ((hpet_get_millis() - start) >= timeoutMs) {
       kprintf("[VIRTIO-GPU] Timeout waiting for Queue %u response\n", (uint32_t)vq->queueIndex);
       return -1;
     }
     __asm__ volatile("pause");
   }
-
-  __asm__ volatile("mfence" ::: "memory");
-
-  while (vq->lastUsedIdx != vq->usedRing->idx) {
-    uint16_t usedSlot = vq->lastUsedIdx % vq->queueSize;
-    uint32_t headDesc = vq->usedRing->ring[usedSlot].id;
-
-    uint16_t curr = (uint16_t)headDesc;
-    uint16_t tail = curr;
-    uint16_t count = 1;
-
-    while (vq->descTable[tail].flags & VIRTQ_DESC_F_NEXT) {
-      tail = vq->descTable[tail].next;
-      count++;
-    }
-
-    vq->descTable[tail].next = vq->freeHead;
-    vq->freeHead = curr;
-    vq->numFree += count;
-
-    vq->lastUsedIdx++;
-  }
-
-  return 0;
 }

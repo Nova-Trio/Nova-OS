@@ -30,6 +30,7 @@ typedef struct VirtioGpuDevice{
 
   void *ctrlDmaPhys;
   void *ctrlDmaVirt;
+  Spinlock ctrlLock;
 
   uint8_t hasVenus;
   uint8_t hasVirgl;

@@ -42,35 +42,80 @@ static void fmtVulkanVersion(uint32_t version, char* outBuf){
 }
 
 int virtioGpuSendControlCmd(VirtioGpuDevice *gpu, const void *req, uint32_t reqLen, void *resp, uint32_t respLen) {
-  if (!gpu->ctrlDmaVirt || reqLen > 2048 || respLen > 2048) {
+  if (!gpu || !gpu->controlQueue || !req || reqLen == 0 || !resp || respLen == 0) {
     return -1;
   }
 
-  uint8_t *dmaVirt = (uint8_t *)gpu->ctrlDmaVirt;
-  uint64_t dmaPhys = (uint64_t)gpu->ctrlDmaPhys;
+  uint64_t rflags = spin_lock_irqsave(&gpu->ctrlLock);
 
-  memcpy(dmaVirt, req, reqLen);
-  memset(dmaVirt + 2048, 0, respLen);
+  uint64_t reqPhys = 0;
+  uint64_t respPhys = 0;
+  void *reqVirt = NULL;
+  void *respVirt = NULL;
+  size_t reqPages = 0;
+  size_t respPages = 0;
+  int dynamicAlloc = 0;
 
-  uint64_t reqPhys = dmaPhys;
-  uint64_t respPhys = dmaPhys + 2048;
+  if (reqLen <= (PAGE_SIZE / 2) && respLen <= (PAGE_SIZE / 2) && gpu->ctrlDmaVirt) {
+    reqPhys = (uint64_t)gpu->ctrlDmaPhys;
+    respPhys = (uint64_t)gpu->ctrlDmaPhys + (PAGE_SIZE / 2);
+    reqVirt = gpu->ctrlDmaVirt;
+    respVirt = (void *)((uint8_t *)gpu->ctrlDmaVirt + (PAGE_SIZE / 2));
+  } else {
+    dynamicAlloc = 1;
+    reqPages = (reqLen + PAGE_SIZE - 1) / PAGE_SIZE;
+    respPages = (respLen + PAGE_SIZE - 1) / PAGE_SIZE;
 
-  if (virtqueueSubmit(gpu->controlQueue, reqPhys, reqLen, respPhys, respLen) != 0) {
-    return -1;
+    void *reqFrame = pmm_alloc_frames(reqPages);
+    void *respFrame = pmm_alloc_frames(respPages);
+
+    if (!reqFrame || !respFrame) {
+      if (reqFrame) pmm_free_frames(reqFrame, reqPages);
+      if (respFrame) pmm_free_frames(respFrame, respPages);
+      spin_unlock_irqrestore(&gpu->ctrlLock, rflags);
+      return -1;
+    }
+
+    reqPhys = (uint64_t)reqFrame;
+    respPhys = (uint64_t)respFrame;
+    reqVirt = (void *)(reqPhys + HHDM_BASE);
+    respVirt = (void *)(respPhys + HHDM_BASE);
   }
 
-  virtqueueKick(gpu->controlQueue);
+  memcpy(reqVirt, req, reqLen);
+  memset(respVirt, 0, respLen);
 
-  if (virtqueuePoll(gpu->controlQueue, 1000) != 0) {
-    return -1;
+  VirtqBuf bufs[2] = {
+    { .physAddr = reqPhys, .len = reqLen, .write = 0 },
+    { .physAddr = respPhys, .len = respLen, .write = 1 }
+  };
+
+  int ret = virtqueueSubmitSg(gpu->controlQueue, bufs, 2);
+  if (ret == 0) {
+    virtqueueKick(gpu->controlQueue);
+    ret = virtqueuePoll(gpu->controlQueue, 1000);
+    if (ret == 0) {
+      memcpy(resp, respVirt, respLen);
+    }
   }
 
-  memcpy(resp, dmaVirt + 2048, respLen);
-  return 0;
+  if (dynamicAlloc) {
+    pmm_free_frames((void *)reqPhys, reqPages);
+    pmm_free_frames((void *)respPhys, respPages);
+  }
+
+  spin_unlock_irqrestore(&gpu->ctrlLock, rflags);
+  return ret;
 }
 
 int virtioGpuGetCapset(VirtioGpuDevice *gpu, uint32_t capsetId, uint32_t capsetVersion, uint32_t capsetMaxSize, void *outCapData, size_t outDataSize) {
-  if (capsetMaxSize == 0 || (sizeof(VirtioGpuCtrlHdr) + capsetMaxSize) > 2048) {
+  if (!gpu || capsetMaxSize == 0 || !outCapData || outDataSize == 0) {
+    return -1;
+  }
+
+  uint32_t respTotalLen = sizeof(VirtioGpuCtrlHdr) + capsetMaxSize;
+  VirtioGpuRespCapset *resp = (VirtioGpuRespCapset *)kmalloc(respTotalLen);
+  if (!resp) {
     return -1;
   }
 
@@ -80,22 +125,22 @@ int virtioGpuGetCapset(VirtioGpuDevice *gpu, uint32_t capsetId, uint32_t capsetV
   req.capsetId = capsetId;
   req.capsetVersion = capsetVersion;
 
-  uint32_t respTotalLen = sizeof(VirtioGpuCtrlHdr) + capsetMaxSize;
-  uint8_t respBuf[2048];
-  memset(respBuf, 0, respTotalLen);
+  memset(resp, 0, respTotalLen);
 
-  if (virtioGpuSendControlCmd(gpu, &req, sizeof(req), respBuf, respTotalLen) != 0) {
+  if (virtioGpuSendControlCmd(gpu, &req, sizeof(req), resp, respTotalLen) != 0) {
+    kfree(resp);
     return -1;
   }
 
-  VirtioGpuRespCapset *resp = (VirtioGpuRespCapset *)respBuf;
   if (resp->hdr.type != VIRTIO_GPU_RESP_OK_CAPSET) {
     kprintf("[VIRTIO-GPU] GET_CAPSET failed with error 0x%04x\n", resp->hdr.type);
+    kfree(resp);
     return -1;
   }
 
   size_t copyBytes = capsetMaxSize < outDataSize ? capsetMaxSize : outDataSize;
   memcpy(outCapData, resp->capsetData, copyBytes);
+  kfree(resp);
   return 0;
 }
 

@@ -1,10 +1,17 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include <novamod.h>
 
 #define VIRTQ_DESC_F_NEXT 1
 #define VIRTQ_DESC_F_WRITE 2
 #define VIRTQ_DESC_F_INDIRECT 4
+
+typedef struct {
+  uint64_t physAddr;
+  uint32_t len;
+  uint8_t write;
+} VirtqBuf;
 
 typedef struct {
   uint64_t addr;
@@ -45,6 +52,7 @@ typedef struct Virtqueue {
   VirtqUsed *usedRing;
 
   volatile uint16_t *notifyAddr;
+  Spinlock lock;
 } Virtqueue;
 
 struct VirtioGpuDevice;
@@ -52,5 +60,6 @@ struct VirtioGpuDevice;
 int virtqueueCreate(struct VirtioGpuDevice *gpu, uint16_t queueIndex, Virtqueue **outQueue);
 void virtqueueDestroy(Virtqueue *vq);
 int virtqueueSubmit(Virtqueue *vq, uint64_t reqPhys, uint32_t reqLen, uint64_t respPhys, uint32_t respLen);
+int virtqueueSubmitSg(Virtqueue *vq, const VirtqBuf *bufs, size_t count);
 void virtqueueKick(Virtqueue *vq);
 int virtqueuePoll(Virtqueue *vq, uint64_t timeoutMs);

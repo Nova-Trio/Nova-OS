@@ -270,6 +270,7 @@ int virtioGpuProbe(const PciDevice *pciDev) {
   }
 
   gpu->pciDev = pciDev;
+  gpu->ctrlLock = SPINLOCK_INIT;
   pcie_enable_bus_master(pciDev);
 
   if (enumerateCapabilities(gpu) != 0) {
