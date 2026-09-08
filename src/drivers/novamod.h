@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "../kernel/nag/nag.h"
+#include "../kernel/sync/spinlock.h"
 
 #define PAGE_SIZE 4096ULL
 #define HHDM_BASE 0xFFFF800000000000ULL
@@ -13,6 +14,8 @@
 #define VMM_FLAG_NO_CACHE (1ULL << 4)
 #define VMM_FLAG_HUGE (1ULL << 7)
 #define VMM_FLAG_NO_EXECUTE (1ULL << 63)
+
+#define VMM_FLAG_WRITE_COMBINING (VMM_FLAG_WRITE_THROUGH)
 
 #define PCIE_INVALID_VENDOR_ID 0xFFFF
 
@@ -185,6 +188,8 @@ typedef struct Thread {
   struct Thread *next;
   struct Thread *prev;
 
+  struct Thread *waitNext;
+
   uint8_t fpuState[512] __attribute__((aligned(16)));
 } Thread;
 
@@ -282,6 +287,8 @@ void schedPreemptDisable(void);
 void schedPreemptEnable(void);
 struct Thread *schedCurrent(void);
 struct Thread *schedCreateThread(struct Process *proc, void (*entry)(void *), void *arg, int isUser);
+void schedEnqueueReady(struct Thread *thread);
+void schedBlockCurrent(Spinlock *externalLock, uint64_t externalFlags);
 
 int validateUserRange(const void *userPtr, size_t size, int write);
 int copyFromUser(void *dst, const void *src, size_t n);
@@ -293,3 +300,5 @@ void driverUnregister(const char *name);
 
 int driver_init(void);
 void driver_exit(void);
+
+#include "../kernel/sync/sync.h"

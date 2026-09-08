@@ -69,6 +69,8 @@ typedef struct Thread {
   struct Thread *next;
   struct Thread *prev;
 
+  struct Thread* waitNext;
+
   uint8_t fpuState[512] __attribute__((aligned(16)));
 } Thread;
 
@@ -148,3 +150,5 @@ void schedUnlock(void);
 void schedThreadExit(void) __attribute__((noreturn));
 void schedSleep(uint64_t ticks);
 void schedPreemptFromInterrupt(const Registers *regs);
+void schedEnqueueReady(Thread *thread);
+void schedBlockCurrent(Spinlock *externalLock, uint64_t externalFlags);

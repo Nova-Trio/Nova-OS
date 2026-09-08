@@ -8,6 +8,19 @@
 #include <string.h>
 #include <stdint.h>
 
+#define MSR_IA32_PAT 0x277
+#define PAT_VALUE 0x0007050600070106ULL
+
+static inline void wrmsr(uint32_t msr, uint64_t val){
+  uint32_t low = (uint32_t)val;
+  uint32_t hig = (uint32_t)(val >> 32);
+  __asm__ volatile("wrmsr" : : "a"(low), "d"(hig), "c"(msr) : "memory");
+}
+
+void vmmInitPat(void){
+  wrmsr(MSR_IA32_PAT, PAT_VALUE);
+}
+
 #define PTE_ADDR_MASK 0x000FFFFFFFFFF000ULL
 
 static PageDirectory gKernelPml4 = NULL;
@@ -43,6 +56,7 @@ static uint64_t *getOrAllocTable(uint64_t *entry, uint64_t flags) {
 }
 
 void vmmInit(BootInfo *bootInfo) {
+  vmmInitPat();
   void *newPml4Phys = pmm_alloc_frame();
   if (!newPml4Phys) {
     return;

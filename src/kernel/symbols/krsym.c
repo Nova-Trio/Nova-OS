@@ -104,3 +104,5 @@ EXPORT_SYMBOL(copyFromUser);
 EXPORT_SYMBOL(copyToUser);
 EXPORT_SYMBOL(driverRegister);
 EXPORT_SYMBOL(driverUnregister);
+EXPORT_SYMBOL(schedBlockCurrent);
+EXPORT_SYMBOL(schedEnqueueReady);

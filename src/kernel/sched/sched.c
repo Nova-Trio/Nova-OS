@@ -35,6 +35,9 @@ static inline void wrmsr64(uint32_t msr, uint64_t val) {
   __asm__ volatile("wrmsr" : : "a"(low), "d"(high), "c"(msr) : "memory");
 }
 
+
+
+
 void perCpuInit(void) {
   bspPerCpu.self = &bspPerCpu;
   bspPerCpu.kstackTop = 0;
@@ -82,6 +85,52 @@ static void idleTask(void *arg) {
   while (1) {
     __asm__ volatile("pause; hlt");
   }
+}
+
+
+void schedBlockCurrent(Spinlock *externalLock, uint64_t externalFlags) {
+  uint64_t sflags = spin_lock_irqsave(&gSchedLock);
+
+  Thread *curr = gCurrentThread;
+  curr->state = THREAD_STATE_BLOCKED;
+
+  if (externalLock) {
+    spin_unlock_irqrestore(externalLock, externalFlags);
+  }
+
+  Thread *next = dequeueReady();
+  if (!next) {
+    next = gIdleThread;
+  }
+
+  __asm__ volatile("fxsave64 %0" : "=m"(curr->fpuState));
+
+  next->state = THREAD_STATE_RUNNING;
+  next->needResched = 0;
+  next->timeSlice = next->defaultSlice;
+  gCurrentThread = next;
+
+  if (next->process && next->process->pml4) {
+    if (!curr->process || curr->process != next->process) {
+      vmmSwitchPml4(next->process->pml4);
+    }
+  }
+
+  tss_set_rsp0(next->kstackTop);
+  PerCpu *cpu = perCpuGet();
+  cpu->kstackTop = next->kstackTop;
+  cpu->currentThread = next;
+  __asm__ volatile("fxrstor64 %0" : : "m"(next->fpuState));
+
+  cpuSwitchTo(curr, next);
+
+  spin_unlock_irqrestore(&gSchedLock, sflags);
+}
+
+void schedEnqueueReady(Thread *thread) {
+  uint64_t rflags = spin_lock_irqsave(&gSchedLock);
+  enqueueReady(thread);
+  spin_unlock_irqrestore(&gSchedLock, rflags);
 }
 
 void schedUnlock(void) {
