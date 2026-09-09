@@ -132,6 +132,50 @@ typedef struct NagContextDestroyArgs {
   uint32_t contextId;
 } NagContextDestroyArgs;
 
+typedef enum {
+  NAG_RES_TYPE_BUFFER = 0,
+  NAG_RES_TYPE_2D = 1,
+  NAG_RES_TYPE_OTHER = 2,
+
+  NAG_RES_TYPE_INVAL = 0xffff,
+} NagResourceType;
+
+typedef enum {
+  NAG_RES_USAGE_RENDER_TARGET = (1U << 0),
+  NAG_RES_USAGE_VERTEX_BUFFER = (1U << 1),
+  NAG_RES_USAGE_INDEX_BUFFER = (1U << 2),
+  NAG_RES_USAGE_TEX = (1U << 3),
+  NAG_RES_USAGE_CONST = (1U << 4),
+  NAG_RES_USAGE_STAGING = (1U << 5),
+} NagResourceUsage;
+
+typedef enum {
+  NAG_FORMAT_NONE = 0,
+  NAG_FORMAT_B8G8R8A8_UNORM = 1,
+  NAG_FORMAT_R8G8B8A8_UNORM = 2,
+  NAG_FORMAT_R32G32B32A32_FLOAT = 3,
+
+} NagPixelFormat;
+
+typedef struct NagResourceCreateArgs {
+  uint32_t contextId;
+  NagResourceType type;
+  uint32_t usage;
+  NagPixelFormat format;
+  uint32_t width;
+  uint32_t height;
+  uint32_t depth;
+
+  uint32_t resourceId;
+  uint64_t cpuAddress;
+  uint64_t size;
+} NagResourceCreateArgs;
+
+typedef struct NagResourceDestroyArgs {
+  uint32_t contextId;
+  uint32_t resourceId;
+} NagResourceDestroyArgs;
+
 // your display driver must accept all these operations and handle them according to the support
 typedef enum {
   NAG_GPU_OP_QUERY = 0,

@@ -18,6 +18,21 @@ typedef struct VirtioGpuContext {
   struct VirtioGpuContext *next;
 } VirtioGpuContext;
 
+typedef struct VirtioGpuResource {
+  uint32_t resourceId;
+  uint32_t contextId;
+  uint32_t width;
+  uint32_t height;
+  uint32_t depth;
+  uint32_t format;
+  uint32_t target;
+  uint32_t bind;
+  void *physBase;
+  size_t pageCount;
+  size_t byteSize;
+  struct VirtioGpuResource *next;
+} VirtioGpuResource;
+
 typedef struct VirtioGpuDevice{
   const PciDevice *pciDev;
   VirtioGpuBar bars[6];
@@ -46,6 +61,10 @@ typedef struct VirtioGpuDevice{
   uint32_t nextContextId;
   Spinlock ctxLock;
 
+  VirtioGpuResource* resources;
+  uint32_t nextResourceId;
+  Spinlock resLock;
+
   struct GpuAdapter adapter;
 } VirtioGpuDevice;
 
@@ -56,3 +75,6 @@ int virtioGpuDispatch(struct GpuAdapter *adapter, NagOp op, void *arg, size_t ar
 
 int virtioGpuContextCreate(VirtioGpuDevice *gpu, const char *name, uint32_t *outCtxId);
 int virtioGpuContextDestroy(VirtioGpuDevice *gpu, uint32_t ctxId);
+
+int virtioGpuResourceCreate(VirtioGpuDevice *gpu, const NagResourceCreateArgs *args, uint32_t *outResId, uint64_t *outCpuAddr, uint64_t *outSize);
+int virtioGpuResourceDestroy(VirtioGpuDevice *gpu, uint32_t ctxId, uint32_t resId);

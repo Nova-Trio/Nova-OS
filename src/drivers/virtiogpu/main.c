@@ -272,8 +272,11 @@ int virtioGpuProbe(const PciDevice *pciDev) {
   gpu->pciDev = pciDev;
   gpu->ctrlLock = SPINLOCK_INIT;
   gpu->ctxLock = SPINLOCK_INIT;
+  gpu->resLock = SPINLOCK_INIT;
   gpu->nextContextId = 1;
+  gpu->nextResourceId = 1;
   gpu->contexts = NULL;
+  gpu->resources = NULL;
   pcie_enable_bus_master(pciDev);
 
   if (enumerateCapabilities(gpu) != 0) {
@@ -344,6 +347,10 @@ int virtioGpuProbe(const PciDevice *pciDev) {
 void virtioGpuRemove(void) {
   if (!gGpuDevice) {
     return;
+  }
+
+  while (gGpuDevice->resources){
+    virtioGpuResourceDestroy(gGpuDevice, gGpuDevice->resources->contextId, gGpuDevice->resources->resourceId);
   }
 
   while (gGpuDevice->contexts) {

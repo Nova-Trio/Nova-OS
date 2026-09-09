@@ -54,7 +54,7 @@ int main(int argc, char **argv, char **envp) {
 
   static const char ctxName[] = "HUANG-3D";
   for (size_t i = 0; i < sizeof(ctxName); i++) {
-    ctxCreate.name[i] = ctxName[i];
+     ctxCreate.name[i] = ctxName[i];
   }
 
   int64_t ctxRet = nagDispatch(0, NAG_GPU_OP_CONTEXT_CREATE, &ctxCreate, sizeof(ctxCreate));
@@ -62,6 +62,41 @@ int main(int argc, char **argv, char **envp) {
     print("[VIRTIO-GPU] Context created with ID: ");
     print_uint(ctxCreate.contextId);
     print("\n");
+
+    NagResourceCreateArgs resCreate;
+    for(size_t i = 0; i < sizeof(resCreate); i++){
+      ((uint8_t*)&resCreate)[i] = 0;
+    }
+
+    resCreate.contextId = ctxCreate.contextId;
+    resCreate.type = NAG_RES_TYPE_2D;
+    resCreate.format = NAG_FORMAT_B8G8R8A8_UNORM;
+    resCreate.usage = NAG_RES_USAGE_RENDER_TARGET;
+    resCreate.width = 64;
+    resCreate.height = 64;
+    resCreate.depth = 1;
+
+    int64_t resRet = nagDispatch(0, NAG_GPU_OP_RESOURCE_CREATE, &resCreate, sizeof(resCreate));
+    if (resRet == 0) {
+      print("[VIRTIO-GPU] Resource created with ID: ");
+      print_uint(resCreate.resourceId);
+      print(", Size: ");
+      print_uint(resCreate.size);
+      print(" bytes\n");
+
+      NagResourceDestroyArgs resDestroy;
+      resDestroy.contextId = ctxCreate.contextId;
+      resDestroy.resourceId = resCreate.resourceId;
+
+      int64_t resDestroyRet = nagDispatch(0, NAG_GPU_OP_RESOURCE_DESTROY, &resDestroy, sizeof(resDestroy));
+      if (resDestroyRet == 0) {
+        print("[VIRTIO-GPU] Resource destroyed successfully\n");
+      } else {
+        print("[VIRTIO-GPU] Resource destruction failed\n");
+      }
+    } else {
+      print("[VIRTIO-GPU] Resource creation failed\n");
+    }
 
     NagContextDestroyArgs ctxDestroy;
     ctxDestroy.contextId = ctxCreate.contextId;
