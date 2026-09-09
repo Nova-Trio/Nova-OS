@@ -141,3 +141,22 @@ typedef struct {
   uint32_t size;
   uint32_t padding;
 } __attribute__((packed)) VirtioGpuCmdSubmit3d;
+
+typedef struct {
+  uint32_t x;
+  uint32_t y;
+  uint32_t z;
+  uint32_t w;
+  uint32_t h;
+  uint32_t d;
+} __attribute__((packed)) VirtioGpuBox;
+
+typedef struct {
+  VirtioGpuCtrlHdr hdr;
+  VirtioGpuBox box;
+  uint64_t offset;
+  uint32_t resourceId;
+  uint32_t level;
+  uint32_t stride;
+  uint32_t layerStride;
+} __attribute__((packed)) VirtioGpuTransferHost3d;

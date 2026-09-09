@@ -21,7 +21,17 @@ static void print_uint(uint64_t val) {
   out[i] = '\0';
   print(out);
 }
- // hello
+ 
+static void printHex32(uint32_t v){
+  static const char hexChars[] = "0123456789ABCDEF";
+  char buf[9];
+  for (int i = 7; i >= 0; i--){
+    buf[i] = hexChars[v & 0xF];
+    v >>= 4;
+  }
+  buf[8] = '\0';
+  print(buf);
+}
 
 int main(int argc, char **argv, char **envp) {
   (void)envp;
@@ -83,6 +93,87 @@ int main(int argc, char **argv, char **envp) {
       print(", Size: ");
       print_uint(resCreate.size);
       print(" bytes\n");
+
+      // very evil commands
+      uint32_t cmd[] = {
+        // create surface object for this 3D res
+        (1) | (8 << 8) | (5 << 16),
+        1,
+        resCreate.resourceId,
+        1,
+        0,
+        0,
+
+        // set fb state
+        (5) | (0 << 8) | (3 << 16),
+        1,
+        0,
+        1,
+
+        // clear render target to r1.0f g0.0f b0.0f a1.0f
+        (7) | (0 << 8) | (8 << 16),
+        4,
+        0x3F800000,
+        0x00000000,
+        0x00000000,
+        0x3F800000,
+        0,
+        0,
+        0
+      };
+
+      NagSubmitArgs submitArgs;
+      submitArgs.contextId = ctxCreate.contextId;
+      submitArgs.commands = cmd;
+      submitArgs.commandSize = sizeof(cmd);
+      submitArgs.fenceId = 0;
+
+      int64_t submitRet = nagDispatch(0, NAG_GPU_OP_SUBMIT, &submitArgs, sizeof(submitArgs));
+      if (submitRet == 0) {
+        print("[VIRTIO-GPU] 3D Command stream submitted. Fence: ");
+        print_uint(submitArgs.fenceId);
+        print("\n");
+
+        NagWaitFenceArgs waitArgs;
+        waitArgs.fenceId = submitArgs.fenceId;
+        waitArgs.timeoutMs = 2000;
+
+        int64_t waitRet = nagDispatch(0, NAG_GPU_OP_WAIT_FENCE, &waitArgs, sizeof(waitArgs));
+        if (waitRet == 0) {
+          print("[VIRTIO-GPU] Fence completed.\n");
+
+          NagTransferArgs xferArgs;
+          for (size_t i = 0; i < sizeof(xferArgs); i++) {
+            ((uint8_t *)&xferArgs)[i] = 0;
+          }
+          xferArgs.contextId = ctxCreate.contextId;
+          xferArgs.resourceId = resCreate.resourceId;
+          xferArgs.direction = NAG_TRANSFER_FROM_HOST;
+          xferArgs.x = 0;
+          xferArgs.y = 0;
+          xferArgs.z = 0;
+          xferArgs.width = 64;
+          xferArgs.height = 64;
+          xferArgs.depth = 1;
+          xferArgs.offset = 0;
+
+          int64_t xferRet = nagDispatch(0, NAG_GPU_OP_TRANSFER, &xferArgs, sizeof(xferArgs));
+          if (xferRet == 0) {
+            print("[VIRTIO-GPU] Host transfer completed.\n");
+
+            volatile uint32_t *pixels = (volatile uint32_t *)resCreate.cpuAddress;
+            print("[VIRTIO-GPU] Pixel [0,0] (B8G8R8A8): 0x");
+            printHex32(pixels[0]);
+            print("\n");
+          } else {
+            print("[VIRTIO-GPU] Host transfer failed.\n");
+          }
+        } else {
+          print("[VIRTIO-GPU] Fence wait timed out.\n");
+        }
+      } else {
+        print("[VIRTIO-GPU] Command submission failed.\n");
+      }
 
       NagResourceDestroyArgs resDestroy;
       resDestroy.contextId = ctxCreate.contextId;

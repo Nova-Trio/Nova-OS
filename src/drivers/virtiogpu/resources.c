@@ -3,6 +3,12 @@
 #include <virtioGpu.h>
 #include <caps.h>
 
+#define GPU_USER_MEM_BASE 0x0000600000000000ULL
+#define GPU_USER_MEM_MAX  0x0000700000000000ULL
+
+static uint64_t gGpuUserVirtCursor = GPU_USER_MEM_BASE;
+static Spinlock gGpuUserVirtLock = SPINLOCK_INIT;
+
 static uint32_t translatePixelFormat(NagPixelFormat format, uint32_t* outBpp){
   switch (format){
     case NAG_FORMAT_B8G8R8A8_UNORM:
@@ -161,6 +167,27 @@ int virtioGpuResourceCreate(VirtioGpuDevice *gpu, const NagResourceCreateArgs *a
     return -1;
   }
 
+  uint64_t userVirt = 0;
+  Thread *currThread = schedCurrent();
+  Process *currProc = currThread ? currThread->process : NULL;
+
+  if (currProc && currProc->pml4) {
+    uint64_t vflags = spin_lock_irqsave(&gGpuUserVirtLock);
+    userVirt = gGpuUserVirtCursor;
+    gGpuUserVirtCursor += pageCount * PAGE_SIZE;
+    if (gGpuUserVirtCursor >= GPU_USER_MEM_MAX) {
+      gGpuUserVirtCursor = GPU_USER_MEM_BASE;
+    }
+    spin_unlock_irqrestore(&gGpuUserVirtLock, vflags);
+
+    vmaCreate(currProc, userVirt, pageCount * PAGE_SIZE, VMA_READ | VMA_WRITE | VMA_USER);
+    if (vmm_map_range(currProc->pml4, userVirt, (uint64_t)physFrames, pageCount * PAGE_SIZE,
+                      VMM_FLAG_PRESENT | VMM_FLAG_WRITABLE | VMM_FLAG_USER) != 0) {
+      vmaDestroy(currProc, userVirt, pageCount * PAGE_SIZE);
+      userVirt = 0;
+    }
+  }
+
   res->resourceId = resId;
   res->contextId = args->contextId;
   res->width = args->width;
@@ -172,6 +199,8 @@ int virtioGpuResourceCreate(VirtioGpuDevice *gpu, const NagResourceCreateArgs *a
   res->physBase = physFrames;
   res->pageCount = pageCount;
   res->byteSize = byteSize;
+  res->userVirt = userVirt;
+  res->proc = currProc;
 
   rflags = spin_lock_irqsave(&gpu->resLock);
   res->next = gpu->resources;
@@ -179,7 +208,7 @@ int virtioGpuResourceCreate(VirtioGpuDevice *gpu, const NagResourceCreateArgs *a
   spin_unlock_irqrestore(&gpu->resLock, rflags);
 
   *outResId = resId;
-  *outCpuAddr = (uint64_t)virtAddr;
+  *outCpuAddr = userVirt ? userVirt : (uint64_t)virtAddr;
   *outSize = byteSize;
   return 0;
 }
@@ -229,6 +258,11 @@ int virtioGpuResourceDestroy(VirtioGpuDevice *gpu, uint32_t ctxId, uint32_t resI
   unrefReq.hdr.type = VIRTIO_GPU_CMD_RESOURCE_UNREF;
   unrefReq.resourceId = resId;
   virtioGpuSendControlCmd(gpu, &unrefReq, sizeof(unrefReq), &resp, sizeof(resp));
+
+  if (target->userVirt && target->proc && target->proc->pml4) {
+    vmm_unmap_range(target->proc->pml4, target->userVirt, target->pageCount * PAGE_SIZE);
+    vmaDestroy(target->proc, target->userVirt, target->pageCount * PAGE_SIZE);
+  }
 
   if (target->physBase && target->pageCount > 0) {
     pmm_free_frames(target->physBase, target->pageCount);

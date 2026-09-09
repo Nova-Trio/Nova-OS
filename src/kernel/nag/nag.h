@@ -160,6 +160,37 @@ typedef struct NagResourceDestroyArgs {
   uint32_t resourceId;
 } NagResourceDestroyArgs;
 
+typedef struct NagSubmitArgs {
+  uint32_t contextId;
+  const void *commands;
+  size_t commandSize;
+  uint64_t fenceId;
+} NagSubmitArgs;
+
+typedef struct NagWaitFenceArgs {
+  uint64_t fenceId;
+  uint64_t timeoutMs;
+} NagWaitFenceArgs;
+
+typedef enum {
+  NAG_TRANSFER_TO_HOST   = 0,
+  NAG_TRANSFER_FROM_HOST = 1,
+} NagTransferDirection;
+
+typedef struct NagTransferArgs {
+  uint32_t contextId;
+  uint32_t resourceId;
+  NagTransferDirection direction;
+  uint32_t x;
+  uint32_t y;
+  uint32_t z;
+  uint32_t width;
+  uint32_t height;
+  uint32_t depth;
+  uint64_t offset;
+  uint64_t fenceId;
+} NagTransferArgs;
+
 // your display driver must accept all these operations and handle them according to the support
 typedef enum {
   NAG_GPU_OP_QUERY = 0,
@@ -169,7 +200,7 @@ typedef enum {
   NAG_GPU_OP_RESOURCE_DESTROY = 4,
   NAG_GPU_OP_SUBMIT = 5,
   NAG_GPU_OP_WAIT_FENCE = 6,
-
+  NAG_GPU_OP_TRANSFER = 7,
 
   NAG_GPU_OP_INVAL = 0xffff,
 } NagOp;

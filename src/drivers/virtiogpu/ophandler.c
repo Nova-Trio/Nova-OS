@@ -134,6 +134,27 @@ int virtioGpuDispatch(struct GpuAdapter* adapter, NagOp op, void* arg, size_t ar
       return virtioGpuResourceDestroy(gpu, args->contextId, args->resourceId);
     }
 
+    case NAG_GPU_OP_SUBMIT: {
+      if (!arg || argSize < sizeof(NagSubmitArgs)) return -1;
+      NagSubmitArgs *args = (NagSubmitArgs *)arg;
+      VirtioGpuDevice *gpu = (VirtioGpuDevice *)adapter->priv;
+      return virtioGpuSubmit(gpu, args, &args->fenceId);
+    }
+
+    case NAG_GPU_OP_TRANSFER: {
+      if (!arg || argSize < sizeof(NagTransferArgs)) return -1;
+      NagTransferArgs *args = (NagTransferArgs *)arg;
+      VirtioGpuDevice *gpu = (VirtioGpuDevice *)adapter->priv;
+      return virtioGpuTransfer(gpu, args, &args->fenceId);
+    }
+
+    case NAG_GPU_OP_WAIT_FENCE: {
+      if (!arg || argSize < sizeof(NagWaitFenceArgs)) return -1;
+      NagWaitFenceArgs *args = (NagWaitFenceArgs *)arg;
+      VirtioGpuDevice *gpu = (VirtioGpuDevice *)adapter->priv;
+      return virtioGpuWaitFence(gpu, args->fenceId, args->timeoutMs);
+    }
+
     default:
       return -1;
   }

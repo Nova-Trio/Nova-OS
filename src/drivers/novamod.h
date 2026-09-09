@@ -81,6 +81,11 @@
 #define SCHED_DEFAULT_QUANTUM 10
 #define SCHED_KSTACK_SIZE (4 * PAGE_SIZE)
 
+#define VMA_READ (1U << 0)
+#define VMA_WRITE (1U << 1)
+#define VMA_EXEC (1U << 2)
+#define VMA_USER (1U << 3)
+
 #define validate_user_range validateUserRange
 #define copy_from_user copyFromUser
 #define copy_to_user copyToUser
@@ -210,6 +215,7 @@ typedef struct DriverOps {
   int64_t (*ioctl)(void *sessionPriv, uint32_t cmd, void *arg, size_t argSize);
 } DriverOps;
 
+struct Vma;
 
 typedef void (*InterruptHandler)(Registers *regs);
 typedef void (*Fat32DirCallback)(const Fat32DirEntry *entry, void *context);
@@ -297,6 +303,9 @@ int copyToUser(void *dst, const void *src, size_t n);
 
 int driverRegister(const char *name, const DriverOps *ops, void *driverPriv);
 void driverUnregister(const char *name);
+
+struct Vma* vmaCreate(struct Process* proc, uint64_t start, uint64_t size, uint32_t flags);
+int vmaDestroy(struct Process* proc, uint64_t start, uint64_t size);
 
 int driver_init(void);
 void driver_exit(void);

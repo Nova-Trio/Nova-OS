@@ -275,6 +275,9 @@ int virtioGpuProbe(const PciDevice *pciDev) {
   gpu->resLock = SPINLOCK_INIT;
   gpu->nextContextId = 1;
   gpu->nextResourceId = 1;
+  gpu->nextFenceId = 1;
+  gpu->lastCompletedFence = 0;
+  gpu->fenceLock = SPINLOCK_INIT;
   gpu->contexts = NULL;
   gpu->resources = NULL;
   pcie_enable_bus_master(pciDev);

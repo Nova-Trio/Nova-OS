@@ -106,3 +106,5 @@ EXPORT_SYMBOL(driverRegister);
 EXPORT_SYMBOL(driverUnregister);
 EXPORT_SYMBOL(schedBlockCurrent);
 EXPORT_SYMBOL(schedEnqueueReady);
+EXPORT_SYMBOL(vmaCreate);
+EXPORT_SYMBOL(vmaDestroy);

@@ -30,6 +30,8 @@ typedef struct VirtioGpuResource {
   void *physBase;
   size_t pageCount;
   size_t byteSize;
+  uint64_t userVirt;
+  Process* proc;
   struct VirtioGpuResource *next;
 } VirtioGpuResource;
 
@@ -65,6 +67,10 @@ typedef struct VirtioGpuDevice{
   uint32_t nextResourceId;
   Spinlock resLock;
 
+  uint64_t nextFenceId;
+  uint64_t lastCompletedFence;
+  Spinlock fenceLock;
+
   struct GpuAdapter adapter;
 } VirtioGpuDevice;
 
@@ -78,3 +84,7 @@ int virtioGpuContextDestroy(VirtioGpuDevice *gpu, uint32_t ctxId);
 
 int virtioGpuResourceCreate(VirtioGpuDevice *gpu, const NagResourceCreateArgs *args, uint32_t *outResId, uint64_t *outCpuAddr, uint64_t *outSize);
 int virtioGpuResourceDestroy(VirtioGpuDevice *gpu, uint32_t ctxId, uint32_t resId);
+
+int virtioGpuSubmit(VirtioGpuDevice *gpu, const NagSubmitArgs *args, uint64_t *outFence);
+int virtioGpuTransfer(VirtioGpuDevice *gpu, const NagTransferArgs *args, uint64_t *outFence);
+int virtioGpuWaitFence(VirtioGpuDevice *gpu, uint64_t fenceId, uint64_t timeoutMs);
