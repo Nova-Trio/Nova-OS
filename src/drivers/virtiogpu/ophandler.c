@@ -105,6 +105,21 @@ int virtioGpuDispatch(struct GpuAdapter* adapter, NagOp op, void* arg, size_t ar
   switch (op) {
     case NAG_GPU_OP_QUERY:
       return VirtioGpuQuery(adapter, arg, argSize);
+
+    case NAG_GPU_OP_CONTEXT_CREATE: {
+      if (!arg || argSize < sizeof(NagContextCreateArgs)) return -1;
+      NagContextCreateArgs *args = (NagContextCreateArgs *)arg;
+      VirtioGpuDevice *gpu = (VirtioGpuDevice *)adapter->priv;
+      return virtioGpuContextCreate(gpu, args->name, &args->contextId);
+    }
+
+    case NAG_GPU_OP_CONTEXT_DESTROY: {
+      if (!arg || argSize < sizeof(NagContextDestroyArgs)) return -1;
+      NagContextDestroyArgs *args = (NagContextDestroyArgs *)arg;
+      VirtioGpuDevice *gpu = (VirtioGpuDevice *)adapter->priv;
+      return virtioGpuContextDestroy(gpu, args->contextId);
+    }
+
     default:
       return -1;
   }

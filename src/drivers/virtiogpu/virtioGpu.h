@@ -12,6 +12,12 @@ typedef struct {
   uint8_t mapped;
 } VirtioGpuBar;
 
+typedef struct VirtioGpuContext {
+  uint32_t contextId;
+  char name[32];
+  struct VirtioGpuContext *next;
+} VirtioGpuContext;
+
 typedef struct VirtioGpuDevice{
   const PciDevice *pciDev;
   VirtioGpuBar bars[6];
@@ -36,6 +42,10 @@ typedef struct VirtioGpuDevice{
   uint8_t hasVirgl;
   uint32_t apiver;
 
+  VirtioGpuContext* contexts;
+  uint32_t nextContextId;
+  Spinlock ctxLock;
+
   struct GpuAdapter adapter;
 } VirtioGpuDevice;
 
@@ -43,3 +53,6 @@ int virtioGpuProbe(const PciDevice *pciDev);
 void virtioGpuRemove(void);
 
 int virtioGpuDispatch(struct GpuAdapter *adapter, NagOp op, void *arg, size_t argSize);
+
+int virtioGpuContextCreate(VirtioGpuDevice *gpu, const char *name, uint32_t *outCtxId);
+int virtioGpuContextDestroy(VirtioGpuDevice *gpu, uint32_t ctxId);

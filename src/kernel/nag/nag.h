@@ -106,8 +106,25 @@ typedef struct NagGpuProps {
   uint32_t driverBuildDate; // optional
 } NagGpuProps;
 
+typedef struct NagContextCreateArgs {
+  char name[32]; // usually can be used for debug tracking
+  uint32_t contextId; // engine id, be creative with this
+} NagContextCreateArgs;
+
+typedef struct NagContextDestroyArgs {
+  uint32_t contextId;
+} NagContextDestroyArgs;
+
+// your display driver must accept all these operations and handle them according to the support
 typedef enum {
   NAG_GPU_OP_QUERY = 0,
+  NAG_GPU_OP_CONTEXT_CREATE = 1,
+  NAG_GPU_OP_CONTEXT_DESTROY = 2,
+  NAG_GPU_OP_RESOURCE_CREATE = 3,
+  NAG_GPU_OP_RESOURCE_DESTROY = 4,
+  NAG_GPU_OP_SUBMIT = 5,
+  NAG_GPU_OP_WAIT_FENCE = 6,
+
 
   NAG_GPU_OP_INVAL = 0xffff,
 } NagOp;
