@@ -3,6 +3,7 @@
 #include <novamod.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <nvrm/nvtypes.h>
 
 static NvDevice* gDevices = NULL;
 
