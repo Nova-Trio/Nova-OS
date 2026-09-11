@@ -94,6 +94,13 @@ int nvRealInit(const PciDevice* dev){
     case 0x00400040: gpu->crystal = 25000; break;
   }
 
+  if(nvVbiosInit(gpu) != 0){
+    kprintf("[NV] Failed to init VBIOS\n");
+    nvUnmapBar(&gpu->bar0);
+    kfree(gpu);
+    return -1;
+  }
+
   gpu->next = gDevices;
   gDevices = gpu;
 
