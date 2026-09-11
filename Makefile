@@ -155,9 +155,9 @@ ifneq ($(HAVE_PARTED),)
 	mcopy -i $@@@1M $(KERNEL) ::/EFI/novaos/$(KERNEL)
 	mcopy -i $@@@1M zap-light16.psf ::/EFI/novaos/zap-light16.psf
 	mcopy -i $@@@1M reallylongfilenamecros.txt ::/EFI/novaos/reallylongfilenamecros.txt
-#	mcopy -i $@@@1M firmware/nvidia/booter_load.bin ::/nova/fw/booter_load.bin
-#	mcopy -i $@@@1M firmware/nvidia/bootloader.bin ::/nova/fw/bootloader.bin
-#	mcopy -i $@@@1M firmware/nvidia/gsp.bin ::/nova/fw/gsp.bin
+	mcopy -i $@@@1M firmware/nvidia/booter_load.bin ::/nova/fw/booter_load.bin
+	mcopy -i $@@@1M firmware/nvidia/bootloader.bin ::/nova/fw/bootloader.bin
+	mcopy -i $@@@1M firmware/nvidia/gsp.bin ::/nova/fw/gsp.bin
 	@for drv in $(DRIVER_ELFS); do \
 		if [ -f "$$drv" ]; then \
 			mcopy -i $@@@1M "$$drv" ::/nova/drivers/$$(basename "$$drv"); \
@@ -176,9 +176,9 @@ else
 	mcopy -i $@ $(KERNEL) ::/EFI/novaos/$(KERNEL)
 	mcopy -i $@ zap-light16.psf ::/EFI/novaos/zap-light16.psf
 	mcopy -i $@ reallylongfilenamecros.txt ::/EFI/novaos/reallylongfilenamecros.txt
-#	mcopy -i $@ firmware/nvidia/booter_load.bin ::/nova/fw/booter_load.bin
-#	mcopy -i $@ firmware/nvidia/bootloader.bin ::/nova/fw/bootloader.bin
-#	mcopy -i $@ firmware/nvidia/gsp.bin ::/nova/fw/gsp.bin
+	mcopy -i $@ firmware/nvidia/booter_load.bin ::/nova/fw/booter_load.bin
+	mcopy -i $@ firmware/nvidia/bootloader.bin ::/nova/fw/bootloader.bin
+	mcopy -i $@ firmware/nvidia/gsp.bin ::/nova/fw/gsp.bin
 	@for drv in $(DRIVER_ELFS); do \
 		if [ -f "$$drv" ]; then \
 			mcopy -i $@ "$$drv" ::/nova/drivers/$$(basename "$$drv"); \
@@ -206,7 +206,7 @@ run-virtio: $(IMG)
 
 run-vfio: $(IMG)
 	sudo qemu-system-x86_64 -m 1G -bios $(OVMF) -drive file=$(IMG),format=raw,if=none,id=nvm0 -device nvme,serial=1234ffff,drive=nvm0 $(QEMU_CPU) $(QEMU_ACCEL) -M q35 \
-	-device pcie-root-port,id=root_port1,chassis=1,slot=1,bus=pcie.0 -device vfio-pci,host=01:00.0,bus=root_port1,multifunction=on,romfile=./gpu.rom -serial stdio
+	-device pcie-root-port,id=root_port1,chassis=1,slot=1,bus=pcie.0 -device vfio-pci,host=01:00.0,bus=root_port1,multifunction=on -serial stdio
 	reset
 clean:
 	rm -rf $(BUILD_DIR) $(EFI) $(KERNEL) $(IMG)
