@@ -155,10 +155,13 @@ ifneq ($(HAVE_PARTED),)
 	mcopy -i $@@@1M $(KERNEL) ::/EFI/novaos/$(KERNEL)
 	mcopy -i $@@@1M zap-light16.psf ::/EFI/novaos/zap-light16.psf
 	mcopy -i $@@@1M reallylongfilenamecros.txt ::/EFI/novaos/reallylongfilenamecros.txt
-	mcopy -i $@@@1M firmware/nvidia/booter_load.bin ::/nova/fw/booter_load.bin
-	mcopy -i $@@@1M firmware/nvidia/bootloader.bin ::/nova/fw/bootloader.bin
-	mcopy -i $@@@1M firmware/nvidia/gsp.bin ::/nova/fw/gsp.bin
-	mcopy -i $@@@1M firmware/nvidia/bl.bin ::/nova/fw/bl.bin
+	## PLEASE DO NOT REMOVE ANY FILES FROM HERE
+	@for fw in firmware/nvidia/*.bin; do \
+		if [ -f "$$fw" ]; then \
+			mcopy -i $@@@1M "$$fw" ::/nova/fw/$$(basename "$$fw"); \
+		fi \
+	done
+	## TO HERE
 	@for drv in $(DRIVER_ELFS); do \
 		if [ -f "$$drv" ]; then \
 			mcopy -i $@@@1M "$$drv" ::/nova/drivers/$$(basename "$$drv"); \
@@ -177,10 +180,13 @@ else
 	mcopy -i $@ $(KERNEL) ::/EFI/novaos/$(KERNEL)
 	mcopy -i $@ zap-light16.psf ::/EFI/novaos/zap-light16.psf
 	mcopy -i $@ reallylongfilenamecros.txt ::/EFI/novaos/reallylongfilenamecros.txt
-	mcopy -i $@ firmware/nvidia/booter_load.bin ::/nova/fw/booter_load.bin
-	mcopy -i $@ firmware/nvidia/bootloader.bin ::/nova/fw/bootloader.bin
-	mcopy -i $@ firmware/nvidia/gsp.bin ::/nova/fw/gsp.bin
-	mcopy -i $@ firmware/nvidia/bl.bin ::/nova/fw/bl.bin
+	## PLEASE DO NOT REMOVE ANY FILES FROM HERE
+	@for fw in firmware/nvidia/*.bin; do \
+		if [ -f "$$fw" ]; then \
+			mcopy -i $@ "$$fw" ::/nova/fw/$$(basename "$$fw"); \
+		fi \
+	done
+	## TO HERE
 	@for drv in $(DRIVER_ELFS); do \
 		if [ -f "$$drv" ]; then \
 			mcopy -i $@ "$$drv" ::/nova/drivers/$$(basename "$$drv"); \

@@ -103,7 +103,7 @@ __attribute__((noreturn)) void _start(BootInfo *boot_info) {
   nvme_init();
   fs_init();
 
-  fs_list_dir("/EFI/novaos", print_dir_entry, NULL);
+  fs_list_dir("/", print_dir_entry, NULL);
 
   module_init();
 
