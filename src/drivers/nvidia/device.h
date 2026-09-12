@@ -30,6 +30,18 @@ typedef struct NvVbios {
   uint32_t bitOffset;
 } NvVbios;
 
+typedef struct NvBitEntry {
+  uint8_t id;
+  uint8_t version;
+  uint16_t length;
+  uint16_t offset;
+} NvBitEntry;
+
+typedef struct NvPmuEntry {
+  uint8_t type;
+  uint32_t data;
+} NvPmuEntry;
+
 typedef struct NvDevice {
   const PciDevice* dev;
   NvBar bar0;
@@ -50,6 +62,15 @@ int nvGspMemAlloc(NvDevice *dev, size_t size, NvGspMem *mem);
 void nvGspMemFree(NvDevice *dev, NvGspMem *mem);
 int nvVbiosInit(NvDevice *dev);
 void nvVbiosFree(NvDevice *dev);
+uint8_t nvbiosRd08(const NvDevice *dev, uint32_t addr);
+uint16_t nvbiosRd16(const NvDevice *dev, uint32_t addr);
+uint32_t nvbiosRd32(const NvDevice *dev, uint32_t addr);
+void *nvbiosPointer(const NvDevice *dev, uint32_t addr);
+
+int nvbiosBitEntry(const NvDevice *dev, uint8_t id, NvBitEntry *bit);
+uint32_t nvbiosPmuTe(const NvDevice *dev, uint8_t *ver, uint8_t *hdr, uint8_t *cnt, uint8_t *len);
+uint32_t nvbiosPmuEp(const NvDevice *dev, int idx, uint8_t *ver, uint8_t *hdr, NvPmuEntry *info);
+int nvVbiosFindFwsec(const NvDevice *dev, NvPmuEntry *info);
 
 static inline uint32_t nvRd32(const NvDevice* dev, uint32_t reg){
   return *(volatile uint32_t*)((uint8_t*)dev->bar0.virtAddr + reg);

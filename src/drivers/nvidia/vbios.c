@@ -92,7 +92,7 @@ static uint32_t nvVbiosFindBit(const uint8_t *data, size_t size) {
         data[i + 2] == sig[2] &&
         data[i + 3] == sig[3] &&
         data[i + 4] == sig[4]) {
-      return (uint32_t)(i + 2);
+      return (uint32_t)i;
     }
   }
 
@@ -124,7 +124,7 @@ int nvVbiosInit(NvDevice *dev) {
   }
 
   size_t romSize = nvVbiosGetTotalSize(buf, maxRomSize);
-  if (romSize == 0) {
+  if (romSize < 512 * 1024) {
     kprintf("ROM size is 0\n");
     romSize = 512 * 1024;
   }
@@ -135,9 +135,120 @@ int nvVbiosInit(NvDevice *dev) {
 
   kprintf("[NV] VBIOS loaded %u KB; BIT offset: 0x%x\n", (uint32_t)(romSize / 1024), dev->bios.bitOffset);
 
+  NvPmuEntry fwsec;
+  if(nvVbiosFindFwsec(dev, &fwsec) == 0){
+    uint32_t hdr = nvbiosRd32(dev, fwsec.data);
+    uint32_t ver = (hdr & 0x0000FF00) >> 8;
+    uint32_t siz = (hdr & 0xFFFF0000) >> 16;
+    uint32_t imemLoadSize = nvbiosRd32(dev, fwsec.data + 0x18);
+    uint32_t imemSecSize = nvbiosRd32(dev, fwsec.data + 0x24);
+    uint32_t dmemOffset = nvbiosRd32(dev, fwsec.data + 0x28);
+    uint32_t dmemLoadSize = nvbiosRd32(dev, fwsec.data + 0x30);
+    uint32_t ifOffset = nvbiosRd32(dev, fwsec.data + 0x10);
+    kprintf("[NV] FWSEC at 0x%x (v%u, header size: 0x%x)\n",fwsec.data,ver,siz);
+    if(ver == 2){
+      kprintf("[NV] FWSEC v2: IMEM: 0x%x (Sec: 0x%x), DMEM: 0x%x (Off: 0x%x), IF: 0x%x\n", 
+        imemLoadSize, imemSecSize, dmemLoadSize, dmemOffset, ifOffset);
+    }
+  }else{
+    kprintf("[NV] FWSEC not found\n");
+  }
+
   return 0;
 }
 
+uint8_t nvbiosRd08(const NvDevice* dev, uint32_t addr) {
+  if (addr >= dev->bios.size)
+    return 0;
+  return dev->bios.data[addr];
+}
+
+uint16_t nvbiosRd16(const NvDevice* dev, uint32_t addr) {
+  if (addr + 2 > dev->bios.size)
+    return 0;
+  return *(const uint16_t *)(dev->bios.data + addr);
+}
+
+uint32_t nvbiosRd32(const NvDevice* dev, uint32_t addr) {
+  if (addr + 4 > dev->bios.size)
+    return 0;
+  return *(const uint32_t *)(dev->bios.data + addr);
+}
+
+void* nvbiosPointer(const NvDevice* dev, uint32_t addr) {
+  if (addr >= dev->bios.size)
+    return NULL;
+  return (void *)(dev->bios.data + addr);
+}
+
+int nvbiosBitEntry(const NvDevice *dev, uint8_t id, NvBitEntry *bit){
+  if(!dev->bios.bitOffset) return -1;
+
+  uint8_t entries = nvbiosRd08(dev, dev->bios.bitOffset + 10);
+  uint8_t step = nvbiosRd08(dev, dev->bios.bitOffset + 9);
+  if (!step) step = 6;
+
+  uint32_t entry = dev->bios.bitOffset + 12;
+
+  while (entries--){
+    if (nvbiosRd08(dev, entry + 0) == id) {
+      bit->id = nvbiosRd08(dev, entry + 0);
+      bit->version = nvbiosRd08(dev, entry + 1);
+      bit->length = nvbiosRd16(dev, entry + 2);
+      bit->offset = nvbiosRd16(dev, entry + 4);
+      return 0;
+    }
+    entry += step;
+  }
+
+  return -1;
+}
+
+uint32_t nvbiosPmuTe(const NvDevice* dev, uint8_t* ver, uint8_t* hdr, uint8_t* cnt, uint8_t* len) {
+  NvBitEntry bitP;
+  uint32_t data = 0;
+
+  if (nvbiosBitEntry(dev, 'p', &bitP) == 0) {
+    if (bitP.version == 2 && bitP.length >= 4)
+      data = nvbiosRd32(dev, bitP.offset + 0x00);
+    if (data) {
+      *ver = nvbiosRd08(dev, data + 0x00);
+      *hdr = nvbiosRd08(dev, data + 0x01);
+      *len = nvbiosRd08(dev, data + 0x02);
+      *cnt = nvbiosRd08(dev, data + 0x03);
+    }
+  }
+
+  return data;
+}
+
+static uint32_t nvbiosPmuEe(const NvDevice* dev, int idx, uint8_t* ver, uint8_t* hdr) {
+  uint8_t cnt, len;
+  uint32_t data = nvbiosPmuTe(dev, ver, hdr, &cnt, &len);
+  if (data && idx < cnt) {
+    data = data + *hdr + (idx * len);
+    *hdr = len;
+    return data;
+  }
+  return 0;
+}
+
+uint32_t nvbiosPmuEp(const NvDevice* dev, int idx, uint8_t* ver, uint8_t* hdr, NvPmuEntry* info) {
+  uint32_t data = nvbiosPmuEe(dev, idx, ver, hdr);
+  if (data) {
+    info->type = nvbiosRd08(dev, data + 0x00);
+    info->data = nvbiosRd32(dev, data + 0x02);
+  }
+  return data;
+}
+
+int nvVbiosFindFwsec(const NvDevice *dev, NvPmuEntry *info) {
+  uint8_t ver, hdr;
+  for (int idx = 0; nvbiosPmuEp(dev, idx, &ver, &hdr, info); idx++) {
+    if (info->type == 0x85) return 0;
+  }
+  return -1;
+}
 
 void nvVbiosFree(NvDevice *dev) {
   if (dev->bios.data) {
