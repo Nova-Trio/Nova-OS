@@ -101,6 +101,22 @@ int nvRealInit(const PciDevice* dev){
     return -1;
   }
 
+  nvFalconInit(&gpu->gspFalcon, gpu, "GSP", 0x110000);
+  nvFalconInit(&gpu->sec2Falcon, gpu, "SEC2", 0x840000);
+
+  kprintf("[NV] GSP Falcon: v%u (code: 0x%x, data: 0x%x)\n", gpu->gspFalcon.version, gpu->gspFalcon.codeLimit,
+      gpu->gspFalcon.dataLimit);
+
+  kprintf("[NV] SEC2 Falcon: v%u (code: 0x%x, data: 0x%x)\n",gpu->sec2Falcon.version, gpu->sec2Falcon.codeLimit, gpu->sec2Falcon.dataLimit);
+
+  if(nvFalconLoadBl(&gpu->bl, "/nova/fw/bl.bin") != 0){
+    kprintf("[NV] Failed to load /nova/fw/bl.bin\n");
+    nvVbiosFree(gpu);
+    nvUnmapBar(&gpu->bar0);
+    kfree(gpu);
+    return -1;
+  }
+
   gpu->next = gDevices;
   gDevices = gpu;
 
@@ -127,6 +143,8 @@ void driver_exit(){
   NvDevice* curr = gDevices;
   while(curr){
     NvDevice* next = curr->next;
+    nvFalconFreeBl(&curr->bl);
+    nvVbiosFree(curr);
     nvUnmapBar(&curr->bar0);
     //nvUnmapBar(&curr->bar1);
     //nvUnmapBar(&curr->bar3);

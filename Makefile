@@ -158,6 +158,7 @@ ifneq ($(HAVE_PARTED),)
 	mcopy -i $@@@1M firmware/nvidia/booter_load.bin ::/nova/fw/booter_load.bin
 	mcopy -i $@@@1M firmware/nvidia/bootloader.bin ::/nova/fw/bootloader.bin
 	mcopy -i $@@@1M firmware/nvidia/gsp.bin ::/nova/fw/gsp.bin
+	mcopy -i $@@@1M firmware/nvidia/bl.bin ::/nova/fw/bl.bin
 	@for drv in $(DRIVER_ELFS); do \
 		if [ -f "$$drv" ]; then \
 			mcopy -i $@@@1M "$$drv" ::/nova/drivers/$$(basename "$$drv"); \
@@ -179,6 +180,7 @@ else
 	mcopy -i $@ firmware/nvidia/booter_load.bin ::/nova/fw/booter_load.bin
 	mcopy -i $@ firmware/nvidia/bootloader.bin ::/nova/fw/bootloader.bin
 	mcopy -i $@ firmware/nvidia/gsp.bin ::/nova/fw/gsp.bin
+	mcopy -i $@ firmware/nvidia/bl.bin ::/nova/fw/bl.bin
 	@for drv in $(DRIVER_ELFS); do \
 		if [ -f "$$drv" ]; then \
 			mcopy -i $@ "$$drv" ::/nova/drivers/$$(basename "$$drv"); \

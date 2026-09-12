@@ -42,6 +42,25 @@ typedef struct NvPmuEntry {
   uint32_t data;
 } NvPmuEntry;
 
+typedef struct NvFalcon {
+  struct NvDevice *dev;
+  const char *name;
+  uint32_t addr;
+  uint32_t addr2;
+  uint32_t codeLimit;
+  uint32_t dataLimit;
+  uint32_t version;
+  uint8_t secret;
+} NvFalcon;
+
+typedef struct NvFalconBootloader {
+  void *raw;
+  size_t rawSize;
+  const uint8_t *code;
+  uint32_t codeSize;
+  uint32_t bootAddr;
+} NvFalconBootloader;
+
 typedef struct NvDevice {
   const PciDevice* dev;
   NvBar bar0;
@@ -54,6 +73,9 @@ typedef struct NvDevice {
 
   uint32_t crystal;
   NvVbios bios;
+  NvFalcon gspFalcon;
+  NvFalcon sec2Falcon;
+  NvFalconBootloader bl;
 
   struct NvDevice* next;
 } NvDevice;
@@ -71,6 +93,15 @@ int nvbiosBitEntry(const NvDevice *dev, uint8_t id, NvBitEntry *bit);
 uint32_t nvbiosPmuTe(const NvDevice *dev, uint8_t *ver, uint8_t *hdr, uint8_t *cnt, uint8_t *len);
 uint32_t nvbiosPmuEp(const NvDevice *dev, int idx, uint8_t *ver, uint8_t *hdr, NvPmuEntry *info);
 int nvVbiosFindFwsec(const NvDevice *dev, NvPmuEntry *info);
+
+int nvFalconInit(NvFalcon *flcn, NvDevice *dev, const char *name, uint32_t addr);
+int nvFalconReset(NvFalcon *flcn);
+void nvFalconImemPioWr(NvFalcon *flcn, const void *src, uint32_t imemAddr, uint32_t len, int sec);
+void nvFalconDmemPioWr(NvFalcon *flcn, const void *src, uint32_t dmemAddr, uint32_t len);
+void nvFalconDmemPioRd(NvFalcon *flcn, void *dst, uint32_t dmemAddr, uint32_t len);
+int nvFalconRiscvActive(NvFalcon *flcn);
+int nvFalconLoadBl(NvFalconBootloader *bl, const char *path);
+void nvFalconFreeBl(NvFalconBootloader *bl);
 
 static inline uint32_t nvRd32(const NvDevice* dev, uint32_t reg){
   return *(volatile uint32_t*)((uint8_t*)dev->bar0.virtAddr + reg);

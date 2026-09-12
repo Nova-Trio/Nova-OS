@@ -125,7 +125,7 @@ int nvVbiosInit(NvDevice *dev) {
 
   size_t romSize = nvVbiosGetTotalSize(buf, maxRomSize);
   if (romSize < 512 * 1024) {
-    kprintf("ROM size is 0\n");
+    kprintf("ROM size is <512K\n");
     romSize = 512 * 1024;
   }
 
