@@ -1,4 +1,5 @@
 #include "turing.h"
+#include "nv_device.h"
 #include <nv_reg.h>
 #include <nv_bus.h>
 #include <nv_dma.h>
@@ -439,6 +440,9 @@ static int turing_init(NvDevice *dev) {
     return -1;
   }
 
+  // the big G(sp) scrubs it
+  int scrub = vprScrubRequired(dev);
+  kprintf("scrub: %d\n", scrub);
 
   return 0;
 

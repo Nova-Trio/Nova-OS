@@ -64,3 +64,4 @@ static inline void nv_wr32(const NvDevice *dev, uint32_t reg, uint32_t val) {
 
 int nv_device_probe(void);
 void nv_device_remove_all(void);
+int vprScrubRequired(NvDevice* dev);

@@ -1,3 +1,4 @@
+#include "nv_dma.h"
 #include <nv_vmm.h>
 
 /*  Returns 1 if entry is 0 */
@@ -122,6 +123,9 @@ int nv_vmm_create(NvVmm *vmm, uint64_t va_start, uint64_t va_limit, struct NvDev
   if (nv_dma_alloc(&vmm->pdb, NV_VMM_PAGE_SIZE) != 0) {
     return -1;
   }
+
+  memset((void*)vmm->pdb.virt_addr, 0, NV_VMM_PAGE_SIZE);
+  nv_dma_clflush_range((const void*)vmm->pdb.virt_addr, NV_VMM_PAGE_SIZE);
 
   vmm->table_list = NULL;
   vmm->free_ranges = NULL;
@@ -305,7 +309,7 @@ int nv_vmm_unmap(NvVmm *vmm, uint64_t gpu_va, size_t size) {
     size_t pde3_idx = (curr_va >> 38) & 0x1FF;
     size_t pde2_idx = (curr_va >> 29) & 0x1FF;
     size_t pde1_idx = (curr_va >> 21) & 0xFF; // 256 entries
-    size_t pte_idx = (curr_va >> 12) & 0x1FF;
+    size_t pte_idx  = (curr_va >> 12) & 0x1FF;
 
     uint64_t raw_pde4 = ((uint64_t)pde4[pde4_idx].word1 << 32) | pde4[pde4_idx].word0;
     if ((raw_pde4 & 0x6ULL) == 0) continue;
@@ -313,19 +317,16 @@ int nv_vmm_unmap(NvVmm *vmm, uint64_t gpu_va, size_t size) {
 
     NvMmuEntry *pde3 = (NvMmuEntry *)(pde3_phys + HHDM_BASE);
     uint64_t raw_pde3 = ((uint64_t)pde3[pde3_idx].word1 << 32) | pde3[pde3_idx].word0;
-
     if ((raw_pde3 & 0x6ULL) == 0) continue;
     uint64_t pde2_phys = (raw_pde3 & ~0xFFULL) << 4;
 
     NvMmuEntry *pde2 = (NvMmuEntry *)(pde2_phys + HHDM_BASE);
     uint64_t raw_pde2 = ((uint64_t)pde2[pde2_idx].word1 << 32) | pde2[pde2_idx].word0;
-
     if ((raw_pde2 & 0x6ULL) == 0) continue;
     uint64_t pde1_phys = (raw_pde2 & ~0xFFULL) << 4;
 
     NvMmuEntry *pde1 = (NvMmuEntry *)(pde1_phys + HHDM_BASE);
     NvMmuEntry *pd0_spt_entry = (NvMmuEntry *)((uint8_t *)pde1 + (pde1_idx * 16) + 8);
-
     uint64_t raw_pd0 = ((uint64_t)pd0_spt_entry->word1 << 32) | pd0_spt_entry->word0;
     if ((raw_pd0 & 0x6ULL) == 0) continue;
     uint64_t pt_phys = (raw_pd0 & ~0xFFULL) << 4;
@@ -335,31 +336,15 @@ int nv_vmm_unmap(NvVmm *vmm, uint64_t gpu_va, size_t size) {
     pt[pte_idx].word0 = 0;
     pt[pte_idx].word1 = 0;
 
-    if (is_table_empty(pt)) {
-      pd0_spt_entry->word0 = 0;
-      pd0_spt_entry->word1 = 0;
-      remove_table_page(vmm, pt_phys);
-
-      if (is_table_empty(pde1)) {
-        pde2[pde2_idx].word0 = 0;
-        pde2[pde2_idx].word1 = 0;
-        remove_table_page(vmm, pde1_phys);
-
-        if (is_table_empty(pde2)) {
-          pde3[pde3_idx].word0 = 0;
-          pde3[pde3_idx].word1 = 0;
-          remove_table_page(vmm, pde2_phys);
-
-          if (is_table_empty(pde3)) {
-            pde4[pde4_idx].word0 = 0;
-            pde4[pde4_idx].word1 = 0;
-            remove_table_page(vmm, pde3_phys);
-          }
-        }
-      }
-    }
+    nv_dma_clflush_range(&pt[pte_idx], sizeof(NvPte));
   }
 
   nv_dma_wmb();
+  nv_dma_mb();
+
+  if (vmm->dev) {
+    nv_mmu_tlb_invalidate(vmm->dev, vmm->pdb.phys_addr);
+  }
+
   return 0;
 }

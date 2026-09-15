@@ -258,7 +258,8 @@ void nv_mmu_tlb_invalidate(const NvDevice *dev, uint64_t pdb_phys) {
 
   nv_wr32(dev, NV_PFB_PRI_MMU_INVALIDATE_PDB_HI, 0x00000000U);
 
-  uint32_t cmd = NV_PFB_PRI_MMU_INVALIDATE_TRIGGER | NV_PFB_PRI_MMU_INVALIDATE_PAGE_ALL;
+  uint32_t cmd = NV_PFB_PRI_MMU_INVALIDATE_TRIGGER | NV_PFB_PRI_MMU_INVALIDATE_PAGE_ALL |
+    NV_PFB_PRI_MMU_INVALIDATE_ALL_PDB | NV_PFB_PRI_MMU_INVALIDATE_HUB_ONLY;
   nv_wr32(dev, NV_PFB_PRI_MMU_INVALIDATE_CMD, cmd);
 
   nv_dma_wmb();
@@ -277,4 +278,11 @@ void nv_mmu_tlb_invalidate(const NvDevice *dev, uint64_t pdb_phys) {
 
   // Timeout
   kprintf("[NV/MMU] TLB invalidate TIMEOUT! last status=0x%08x\n", status);
+}
+
+
+// probably should be moved
+int vprScrubRequired(NvDevice* dev){
+  nv_wr32(dev, 0x100cd0, 0x2);
+  return (nv_rd32(dev, 0x100cd0) & 0x00000010) != 0; // 1 = evil
 }
