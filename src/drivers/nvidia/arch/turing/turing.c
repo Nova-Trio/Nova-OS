@@ -444,6 +444,7 @@ static int turing_init(NvDevice *dev) {
   int scrub = vprScrubRequired(dev);
   kprintf("scrub: %d\n", scrub);
 
+
   return 0;
 
 }
