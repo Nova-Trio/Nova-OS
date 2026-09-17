@@ -414,9 +414,9 @@ void nv_gsp_dump_static_info(const GspStaticConfigInfo *info) {
   kprintf("VBIOS SKU Chip       : %s (BoardID: 0x%04x)\n", info->SKUInfo.chipSKU, info->SKUInfo.BoardID);
   kprintf("VBIOS SKU Project    : %s (SKU: %s)\n", info->SKUInfo.project, info->SKUInfo.projectSKU);
   kprintf("FB Regions Count     : %u regions\n", info->fbRegionInfoParams.numFBRegions);
-  for (uint32_t i = 0; i < info->fbRegionInfoParams.numFBRegions && i < 4; i++) {
-    kprintf("    Region %u         : 0x%016llx - 0x%016llx (prot=%u)\n", i, info->fbRegionInfoParams.fbRegion[i].base, info->fbRegionInfoParams.fbRegion[i].limit,
-            info->fbRegionInfoParams.fbRegion[i].bProtected);
+  for (uint32_t i = 0; i < info->fbRegionInfoParams.numFBRegions; i++) {
+    const NV2080_CTRL_CMD_FB_GET_FB_REGION_FB_REGION_INFO *reg = &info->fbRegionInfoParams.fbRegion[i];
+    kprintf("    Region %u         : 0x%016llx - 0x%016llx (prot=%u, res=%llu, comp=%u, iso=%u)\n",i, reg->base, reg->limit, reg->bProtected, reg->reserved,reg->supportCompressed, reg->supportISO);
   }
   kprintf("**END**\n\n");
 }

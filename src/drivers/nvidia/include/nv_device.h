@@ -1,6 +1,10 @@
 #pragma once
 #include <novamod.h>
 #include <nv_vmm.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#define NV_VRAM_PAGE_SIZE 4096ULL
 
 typedef enum {
   NV_ARCH_UNKNOWN = 0,
@@ -39,6 +43,16 @@ typedef struct {
   void (*cleanup)(struct NvDevice *dev);
 } NvArchOps;
 
+typedef struct NvVram{
+  uint64_t physBase; // dont have the balls to hardcode this even if i think it is the same on every TU1xx
+  uint64_t size;
+  uint64_t usableLimit; // physBase + size - 1
+  uint64_t freeBytes;
+  uint64_t totalPages;
+  uint64_t* bitmap;
+  size_t bitmapWords;
+} NvVram;
+
 // Defines a single physical GPU
 typedef struct NvDevice {
   const PciDevice *pci_dev;
@@ -47,6 +61,8 @@ typedef struct NvDevice {
   NvBar bar3;
   NvChipInfo chip;
   NvVmm vmm;
+  NvVram vram;
+  NvVmm bar1Vmm;
   NvDmaBuffer bar1_inst;
   NvDmaBuffer flush_page;
   const NvArchOps *ops;

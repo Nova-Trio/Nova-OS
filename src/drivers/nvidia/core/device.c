@@ -234,14 +234,83 @@ int nv_bus_bind_bar1_phys(const NvDevice *dev, uint64_t phys_addr, uint32_t targ
   }
 
   uint32_t ptr_val = (uint32_t)(phys_addr >> NV_PBUS_BAR1_BLOCK_PTR_ALIGN_SHIFT);
-  uint32_t val = (NV_PBUS_BAR1_BLOCK_MODE_PHYSICAL << NV_PBUS_BAR1_BLOCK_MODE_SHIFT) |
-  ((target & 0x3) << NV_PBUS_BAR1_BLOCK_TARGET_SHIFT) |
-  (ptr_val & NV_PBUS_BAR1_BLOCK_PTR_MASK);
+  uint32_t val = (NV_PBUS_BAR1_BLOCK_MODE_PHYSICAL << NV_PBUS_BAR1_BLOCK_MODE_SHIFT) | ((target & 0x3) << NV_PBUS_BAR1_BLOCK_TARGET_SHIFT) | (ptr_val & NV_PBUS_BAR1_BLOCK_PTR_MASK);
 
   nv_wr32(dev, NV_PBUS_BAR1_BLOCK, val);
   nv_dma_wmb();
   nv_bus_wait_bar1_bind(dev);
   return 0;
+}
+
+int nvBar1Init(NvDevice *dev) {
+  if (!dev || !dev->bar1.virt_addr || dev->bar1.size == 0) {
+    return -1;
+  }
+
+  if (nv_vmm_create(&dev->bar1Vmm, 0x1000ULL, dev->bar1.size, dev) != 0) {
+    kprintf("[NV/BAR1] Error: Failed to create BAR1 VMM address space\n");
+    return -1;
+  }
+
+  if (nv_bus_bind_bar1_vmm(dev, &dev->bar1Vmm) != 0) {
+    kprintf("[NV/BAR1] Error: Failed to bind BAR1 MMU to host PDB\n");
+    nv_vmm_destroy(&dev->bar1Vmm);
+    return -1;
+  }
+
+  kprintf("[NV/BAR1] Virtual BAR1 aperture initialized (%llu MB address space)\n", dev->bar1.size / (1024ULL * 1024ULL));
+  return 0;
+}
+
+void nvBar1Cleanup(NvDevice *dev) {
+  if (!dev || !dev->bar1Vmm.pdb.phys_addr) {
+    return;
+  }
+
+  nv_wr32(dev, NV_PRAMIN_BAR1_BLOCK, nv_rd32(dev, NV_PRAMIN_BAR1_BLOCK) & ~NV_PRAMIN_BAR1_BLOCK_ENABLE);
+  nv_dma_wmb();
+  nv_bus_wait_bar1_bind(dev);
+
+  nv_vmm_destroy(&dev->bar1Vmm);
+  kprintf("[NV/BAR1] Virtual BAR1 aperture shut down\n");
+}
+
+int nvBar1Map(NvDevice *dev, uint64_t phys_addr, size_t size, void **out_cpu_ptr, uint64_t *out_bar1_va) {
+  if (!dev || !dev->bar1Vmm.pdb.phys_addr || phys_addr == 0 || size == 0 || !out_cpu_ptr) {
+    return -1;
+  }
+
+  uint64_t aligned_size = (size + NV_VMM_PAGE_SIZE - 1) & ~(NV_VMM_PAGE_SIZE - 1);
+  uint64_t bar1_va = 0;
+
+  if (nv_vmm_alloc_va(&dev->bar1Vmm, aligned_size, NV_VMM_PAGE_SIZE, &bar1_va) != 0) {
+    kprintf("[NV/BAR1] Error: Out of VA space in BAR1 aperture\n");
+    return -1;
+  }
+
+  if (nv_vmm_map(&dev->bar1Vmm, bar1_va, phys_addr, aligned_size, NV_MMU_APERTURE_VID_MEM, 0, 0) != 0) {
+    kprintf("[NV/BAR1] Error: Failed to map page tables for BAR1 VA 0x%08llx\n", bar1_va);
+    nv_vmm_free_va(&dev->bar1Vmm, bar1_va, aligned_size);
+    return -1;
+  }
+
+  *out_cpu_ptr = (void *)(dev->bar1.virt_addr + bar1_va);
+  if (out_bar1_va) {
+    *out_bar1_va = bar1_va;
+  }
+
+  return 0;
+}
+
+void nvBar1Unmap(NvDevice *dev, uint64_t bar1_va, size_t size) {
+  if (!dev || !dev->bar1Vmm.pdb.phys_addr || bar1_va == 0 || size == 0) {
+    return;
+  }
+
+  uint64_t aligned_size = (size + NV_VMM_PAGE_SIZE - 1) & ~(NV_VMM_PAGE_SIZE - 1);
+
+  nv_vmm_unmap(&dev->bar1Vmm, bar1_va, aligned_size);
+  nv_vmm_free_va(&dev->bar1Vmm, bar1_va, aligned_size);
 }
 
 
@@ -259,7 +328,7 @@ void nv_mmu_tlb_invalidate(const NvDevice *dev, uint64_t pdb_phys) {
   nv_wr32(dev, NV_PFB_PRI_MMU_INVALIDATE_PDB_HI, 0x00000000U);
 
   uint32_t cmd = NV_PFB_PRI_MMU_INVALIDATE_TRIGGER | NV_PFB_PRI_MMU_INVALIDATE_PAGE_ALL |
-    NV_PFB_PRI_MMU_INVALIDATE_ALL_PDB | NV_PFB_PRI_MMU_INVALIDATE_HUB_ONLY;
+  NV_PFB_PRI_MMU_INVALIDATE_ALL_PDB | NV_PFB_PRI_MMU_INVALIDATE_HUB_ONLY;
   nv_wr32(dev, NV_PFB_PRI_MMU_INVALIDATE_CMD, cmd);
 
   nv_dma_wmb();

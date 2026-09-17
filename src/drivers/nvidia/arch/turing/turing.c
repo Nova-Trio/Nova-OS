@@ -10,6 +10,7 @@
 #include <nv_wpr.h>
 #include <nv_sec2.h>
 #include <nv_rpc.h>
+#include <nv_vram.h>
 #include <string.h>
 
 // NOTE: Yall can guard the kprintfs and other stuff with defines but only if the impl works
@@ -426,6 +427,42 @@ static int turing_init(NvDevice *dev) {
     return -1;
   }
 
+  uint64_t vram_base = 0;
+  uint64_t vram_size = 0;
+  for (uint32_t i = 0; i < static_info.fbRegionInfoParams.numFBRegions; i++) {
+    const NV2080_CTRL_CMD_FB_GET_FB_REGION_FB_REGION_INFO *reg =
+    &static_info.fbRegionInfoParams.fbRegion[i];
+    if (reg->reserved == 0 && reg->bProtected == 0 &&
+      reg->supportCompressed != 0 && reg->supportISO != 0 &&
+      reg->limit >= reg->base) {
+      vram_base = reg->base;
+    vram_size = (reg->limit - reg->base) + 1;
+    break;
+      }
+  }
+
+  if (vram_size == 0) {
+    kprintf("[NV/TU] Error: Failed to find usable VRAM region in telemetry\n");
+    nv_gsp_fw_cleanup(&gsp_ctx);
+    nv_dma_free(&dev->flush_page);
+    return -1;
+  }
+
+  if (nvVramInit(dev, vram_base, vram_size) != 0) {
+    kprintf("[NV/TU] Error: Failed to initialize VRAM allocator\n");
+    nv_gsp_fw_cleanup(&gsp_ctx);
+    nv_dma_free(&dev->flush_page);
+    return -1;
+  }
+
+  if (nvBar1Init(dev) != 0) {
+    kprintf("[NV/TU] Error: Failed to initialize Virtual BAR1\n");
+    nvVramCleanup(dev);
+    nv_gsp_fw_cleanup(&gsp_ctx);
+    nv_dma_free(&dev->flush_page);
+    return -1;
+  }
+
   if (nv_gsp_intr_get_table(dev, &gsp_ctx, &static_info) != 0) {
     kprintf("[NV/TU] Error: Failed to query hardware interrupt table\n");
     nv_gsp_fw_cleanup(&gsp_ctx);
@@ -444,13 +481,14 @@ static int turing_init(NvDevice *dev) {
   int scrub = vprScrubRequired(dev);
   kprintf("scrub: %d\n", scrub);
 
-
   return 0;
 
 }
 
 static void turing_cleanup(NvDevice *dev) {
   kprintf("[NV/TU] Shutting down %s\n", dev->chip.chip_name);
+  nvBar1Cleanup(dev);
+  nvVramCleanup(dev);
 
   if (dev->flush_page.phys_addr) {
     nv_dma_free(&dev->flush_page);
