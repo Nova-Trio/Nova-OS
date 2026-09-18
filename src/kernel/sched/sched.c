@@ -11,6 +11,79 @@
 
 #define MSR_GS_BASE 0xC0000101u
 #define MSR_KERNEL_GS_BASE 0xC0000102u
+#define USER_INTERP_BASE 0x0000700000000000ULL
+
+static int loadElfSegments(Process *proc, const uint8_t *raw, size_t fileSize, uint64_t loadBias) {
+  const Elf64_Ehdr *ehdr = (const Elf64_Ehdr *)raw;
+  if (ehdr->e_phoff + ((uint64_t)ehdr->e_phnum * ehdr->e_phentsize) > fileSize) {
+    return -1;
+  }
+
+  const Elf64_Phdr *phdrs = (const Elf64_Phdr *)(raw + ehdr->e_phoff);
+
+  for (size_t i = 0; i < ehdr->e_phnum; i++) {
+    const Elf64_Phdr *phdr = &phdrs[i];
+    if (phdr->p_type != PT_LOAD) {
+      continue;
+    }
+
+    if (phdr->p_offset + phdr->p_filesz > fileSize || phdr->p_filesz > phdr->p_memsz) {
+      return -1;
+    }
+
+    uint64_t vaddr = phdr->p_vaddr + loadBias;
+    if (vaddr + phdr->p_memsz > USER_SPACE_MAX) {
+      return -1;
+    }
+
+    uint32_t vmaFlags = VMA_USER;
+    if (phdr->p_flags & PF_R) vmaFlags |= VMA_READ;
+    if (phdr->p_flags & PF_W) vmaFlags |= VMA_WRITE;
+    if (phdr->p_flags & PF_X) vmaFlags |= VMA_EXEC;
+
+    uint64_t segStart = vaddr & ~(PAGE_SIZE - 1);
+    uint64_t segEnd = (vaddr + phdr->p_memsz + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    uint64_t segSize = segEnd - segStart;
+
+    if (!vmaCreate(proc, segStart, segSize, vmaFlags)) {
+      return -1;
+    }
+
+    for (uint64_t pageV = segStart; pageV < segEnd; pageV += PAGE_SIZE) {
+      void *frame = pmm_alloc_frame();
+      if (!frame) {
+        return -1;
+      }
+
+      memset((void *)((uint64_t)frame + HHDM_BASE), 0, PAGE_SIZE);
+
+      uint64_t fileStart = vaddr;
+      uint64_t fileEnd = vaddr + phdr->p_filesz;
+      uint64_t pageEnd = pageV + PAGE_SIZE;
+
+      uint64_t overlapStart = (pageV > fileStart) ? pageV : fileStart;
+      uint64_t overlapEnd = (pageEnd < fileEnd) ? pageEnd : fileEnd;
+
+      if (overlapStart < overlapEnd) {
+        uint64_t fileOffset = phdr->p_offset + (overlapStart - fileStart);
+        uint64_t frameOffset = overlapStart - pageV;
+        size_t copyLen = (size_t)(overlapEnd - overlapStart);
+        memcpy((uint8_t *)frame + HHDM_BASE + frameOffset, raw + fileOffset, copyLen);
+      }
+
+      uint64_t pteFlags = VMM_FLAG_PRESENT | VMM_FLAG_USER;
+      if (phdr->p_flags & PF_W) pteFlags |= VMM_FLAG_WRITABLE;
+      if (!(phdr->p_flags & PF_X)) pteFlags |= VMM_FLAG_NO_EXECUTE;
+
+      if (vmmMapPage(proc->pml4, pageV, (uint64_t)frame, pteFlags) != 0) {
+        pmm_free_frame(frame);
+        return -1;
+      }
+    }
+  }
+
+  return 0;
+}
 
 static Spinlock gSchedLock = SPINLOCK_INIT;
 
@@ -178,6 +251,10 @@ Process *schedCreateProcess(const char *name) {
   proc->handleTable.count = 0;
   spinlock_init(&proc->handleTable.lock);
 
+  proc->fileTable.handles = NULL;
+  proc->fileTable.capacity = 0;
+  spinlock_init(&proc->fileTable.lock);
+
   proc->pml4Phys = vmmVirtToPhys(vmmGetKernelPml4(), (uint64_t)proc->pml4);
   if (name) {
     size_t len = strlen(name);
@@ -282,34 +359,27 @@ Process *schedSpawn(const char *path, const char *name, const char **argv, const
   const uint8_t *raw = (const uint8_t *)rawData;
   const Elf64_Ehdr *ehdr = (const Elf64_Ehdr *)raw;
 
-  if (ehdr->e_ident[0] != ELFMAG0 || ehdr->e_ident[1] != ELFMAG1 || ehdr->e_ident[2] != ELFMAG2 || ehdr->e_ident[3] != ELFMAG3 || ehdr->e_ident[4] != ELFCLASS64 || ehdr->e_ident[5] != ELFDATA2LSB ||
-    ehdr->e_machine != EM_X86_64 || (ehdr->e_type != ET_EXEC && ehdr->e_type != ET_DYN)) {
+  if (ehdr->e_ident[0] != ELFMAG0 || ehdr->e_ident[1] != ELFMAG1 || ehdr->e_ident[2] != ELFMAG2 || ehdr->e_ident[3] != ELFMAG3 ||
+    ehdr->e_ident[4] != ELFCLASS64 || ehdr->e_ident[5] != ELFDATA2LSB || ehdr->e_machine != EM_X86_64 ||
+    (ehdr->e_type != ET_EXEC && ehdr->e_type != ET_DYN)) {
     kfree(rawData);
-    return NULL;
-  }
-
-  if (ehdr->e_phoff + ((uint64_t)ehdr->e_phnum * ehdr->e_phentsize) > fileSize) {
-    kfree(rawData);
-    return NULL;
-  }
-
-  uint64_t loadBias = (ehdr->e_type == ET_DYN) ? 0x0000000000400000ULL : 0;
-  const char *procName = name ? name : path;
-  Process *proc = schedCreateProcess(procName);
-  if (!proc) {
-    kfree(rawData);
-    return NULL;
-  }
-
-  const Elf64_Phdr *phdrs = (const Elf64_Phdr *)(raw + ehdr->e_phoff);
-
-  for (size_t i = 0; i < ehdr->e_phnum; i++) {
-    const Elf64_Phdr *phdr = &phdrs[i];
-    if (phdr->p_type != PT_LOAD) {
-      continue;
+  return NULL;
     }
 
-    if (phdr->p_offset + phdr->p_filesz > fileSize || phdr->p_filesz > phdr->p_memsz) {
+    if (ehdr->e_phoff + ((uint64_t)ehdr->e_phnum * ehdr->e_phentsize) > fileSize) {
+      kfree(rawData);
+      return NULL;
+    }
+
+    uint64_t loadBias = (ehdr->e_type == ET_DYN) ? 0x0000000000400000ULL : 0;
+    const char *procName = name ? name : path;
+    Process *proc = schedCreateProcess(procName);
+    if (!proc) {
+      kfree(rawData);
+      return NULL;
+    }
+
+    if (loadElfSegments(proc, raw, fileSize, loadBias) != 0) {
       vmaDestroyAll(proc);
       vmmDestroyAddressSpace(proc->pml4);
       kfree(proc);
@@ -317,35 +387,74 @@ Process *schedSpawn(const char *path, const char *name, const char **argv, const
       return NULL;
     }
 
-    uint64_t vaddr = phdr->p_vaddr + loadBias;
-    if (vaddr + phdr->p_memsz > USER_SPACE_MAX) {
-      vmaDestroyAll(proc);
-      vmmDestroyAddressSpace(proc->pml4);
-      kfree(proc);
-      kfree(rawData);
-      return NULL;
+    const Elf64_Phdr *phdrs = (const Elf64_Phdr *)(raw + ehdr->e_phoff);
+    const char *interpPath = NULL;
+    uint64_t appPhdrUserAddr = 0;
+
+    for (size_t i = 0; i < ehdr->e_phnum; i++) {
+      const Elf64_Phdr *phdr = &phdrs[i];
+      if (phdr->p_type == PT_INTERP) {
+        if (phdr->p_offset + phdr->p_filesz <= fileSize && phdr->p_filesz > 0) {
+          interpPath = (const char *)(raw + phdr->p_offset);
+        }
+      } else if (phdr->p_type == PT_PHDR) {
+        appPhdrUserAddr = phdr->p_vaddr + loadBias;
+      }
     }
 
-    uint32_t vmaFlags = VMA_USER;
-    if (phdr->p_flags & PF_R) vmaFlags |= VMA_READ;
-    if (phdr->p_flags & PF_W) vmaFlags |= VMA_WRITE;
-    if (phdr->p_flags & PF_X) vmaFlags |= VMA_EXEC;
-
-    uint64_t segStart = vaddr & ~(PAGE_SIZE - 1);
-    uint64_t segEnd = (vaddr + phdr->p_memsz + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-    uint64_t segSize = segEnd - segStart;
-
-    if (!vmaCreate(proc, segStart, segSize, vmaFlags)) {
-      vmaDestroyAll(proc);
-      vmmDestroyAddressSpace(proc->pml4);
-      kfree(proc);
-      kfree(rawData);
-      return NULL;
+    if (appPhdrUserAddr == 0) {
+      for (size_t i = 0; i < ehdr->e_phnum; i++) {
+        const Elf64_Phdr *phdr = &phdrs[i];
+        if (phdr->p_type == PT_LOAD && phdr->p_offset <= ehdr->e_phoff &&
+          (phdr->p_offset + phdr->p_filesz) >= (ehdr->e_phoff + ((uint64_t)ehdr->e_phnum * ehdr->e_phentsize))) {
+          appPhdrUserAddr = (phdr->p_vaddr + loadBias) + (ehdr->e_phoff - phdr->p_offset);
+        break;
+          }
+      }
     }
 
-    for (uint64_t pageV = segStart; pageV < segEnd; pageV += PAGE_SIZE) {
-      void *frame = pmm_alloc_frame();
-      if (!frame) {
+    uint64_t entryPoint = ehdr->e_entry + loadBias;
+    uint64_t interpBase = 0;
+
+    if (interpPath) {
+      void *interpRawData = NULL;
+      size_t interpFileSize = 0;
+
+      if (fs_read_file(interpPath, &interpRawData, &interpFileSize) != 0 || !interpRawData) {
+        if (interpPath[0] == '/' && fs_read_file(interpPath + 1, &interpRawData, &interpFileSize) == 0 && interpRawData) {
+        } else {
+          const char *baseName = interpPath;
+          for (const char *p = interpPath; *p; p++) {
+            if (*p == '/' || *p == '\\') {
+              baseName = p + 1;
+            }
+          }
+
+          char altPath[128];
+          size_t bLen = strlen(baseName);
+          if (bLen + 5 < sizeof(altPath)) {
+            memcpy(altPath, "lib/", 4);
+            memcpy(altPath + 4, baseName, bLen + 1);
+            fs_read_file(altPath, &interpRawData, &interpFileSize);
+          }
+
+          if (!interpRawData && bLen + 5 < sizeof(altPath)) {
+            memcpy(altPath, "bin/", 4);
+            memcpy(altPath + 4, baseName, bLen + 1);
+            fs_read_file(altPath, &interpRawData, &interpFileSize);
+          }
+
+          if (!interpRawData && bLen + 12 < sizeof(altPath)) {
+            memcpy(altPath, "EFI/novaos/", 11);
+            memcpy(altPath + 11, baseName, bLen + 1);
+            fs_read_file(altPath, &interpRawData, &interpFileSize);
+          }
+        }
+      }
+
+      if (!interpRawData || interpFileSize < sizeof(Elf64_Ehdr)) {
+        kprintf("[SPAWN] Error: Failed to load interpreter '%s'\n", interpPath);
+        if (interpRawData) kfree(interpRawData);
         vmaDestroyAll(proc);
         vmmDestroyAddressSpace(proc->pml4);
         kfree(proc);
@@ -353,82 +462,87 @@ Process *schedSpawn(const char *path, const char *name, const char **argv, const
         return NULL;
       }
 
-      memset((void *)((uint64_t)frame + HHDM_BASE), 0, PAGE_SIZE);
+      const uint8_t *interpRaw = (const uint8_t *)interpRawData;
+      const Elf64_Ehdr *interpEhdr = (const Elf64_Ehdr *)interpRaw;
 
-      uint64_t fileStart = vaddr;
-      uint64_t fileEnd = vaddr + phdr->p_filesz;
-      uint64_t pageEnd = pageV + PAGE_SIZE;
-
-      uint64_t overlapStart = (pageV > fileStart) ? pageV : fileStart;
-      uint64_t overlapEnd = (pageEnd < fileEnd) ? pageEnd : fileEnd;
-
-      if (overlapStart < overlapEnd) {
-        uint64_t fileOffset = phdr->p_offset + (overlapStart - fileStart);
-        uint64_t frameOffset = overlapStart - pageV;
-        size_t copyLen = (size_t)(overlapEnd - overlapStart);
-        memcpy((uint8_t *)frame + HHDM_BASE + frameOffset, raw + fileOffset, copyLen);
-      }
-
-      uint64_t pteFlags = VMM_FLAG_PRESENT | VMM_FLAG_USER;
-      if (phdr->p_flags & PF_W) pteFlags |= VMM_FLAG_WRITABLE;
-      if (!(phdr->p_flags & PF_X)) pteFlags |= VMM_FLAG_NO_EXECUTE;
-
-      if (vmmMapPage(proc->pml4, pageV, (uint64_t)frame, pteFlags) != 0) {
-        pmm_free_frame(frame);
+      if (interpEhdr->e_ident[0] != ELFMAG0 || interpEhdr->e_ident[1] != ELFMAG1 || interpEhdr->e_ident[2] != ELFMAG2 || interpEhdr->e_ident[3] != ELFMAG3 || interpEhdr->e_ident[4] != ELFCLASS64 || interpEhdr->e_ident[5] != ELFDATA2LSB || interpEhdr->e_machine != EM_X86_64 || (interpEhdr->e_type != ET_EXEC && interpEhdr->e_type != ET_DYN)) {
+        kprintf("[SPAWN] Error: Invalid interpreter ELF format\n");
+        kfree(interpRawData);
         vmaDestroyAll(proc);
         vmmDestroyAddressSpace(proc->pml4);
         kfree(proc);
         kfree(rawData);
         return NULL;
       }
+
+      uint64_t interpLoadBias = (interpEhdr->e_type == ET_DYN) ? USER_INTERP_BASE : 0;
+      interpBase = interpLoadBias;
+
+      if (loadElfSegments(proc, interpRaw, interpFileSize, interpLoadBias) != 0) {
+        kprintf("[SPAWN] Error: Failed to map interpreter segments\n");
+        kfree(interpRawData);
+        vmaDestroyAll(proc);
+        vmmDestroyAddressSpace(proc->pml4);
+        kfree(proc);
+        kfree(rawData);
+        return NULL;
+      }
+
+      entryPoint = interpEhdr->e_entry + interpLoadBias;
+      kfree(interpRawData);
     }
-  }
 
-  uint64_t stackTop = USER_STACK_TOP_DEFAULT;
-  uint64_t stackSize = USER_STACK_INITIAL_SIZE;
-  uint64_t stackBase = stackTop - stackSize;
+    uint64_t stackTop = USER_STACK_TOP_DEFAULT;
+    uint64_t stackSize = USER_STACK_INITIAL_SIZE;
+    uint64_t stackBase = stackTop - stackSize;
 
-  if (!vmaCreate(proc, stackBase, stackSize, VMA_READ | VMA_WRITE | VMA_USER | VMA_STACK | VMA_ANON)) {
+    if (!vmaCreate(proc, stackBase, stackSize, VMA_READ | VMA_WRITE | VMA_USER | VMA_STACK | VMA_ANON)) {
+      vmaDestroyAll(proc);
+      vmmDestroyAddressSpace(proc->pml4);
+      kfree(proc);
+      kfree(rawData);
+      return NULL;
+    }
+
+    uint64_t topPageVaddr = stackTop - PAGE_SIZE;
+    void *stackFrame = pmm_alloc_frame();
+    if (!stackFrame) {
+      vmaDestroyAll(proc);
+      vmmDestroyAddressSpace(proc->pml4);
+      kfree(proc);
+      kfree(rawData);
+      return NULL;
+    }
+
+    memset((void *)((uint64_t)stackFrame + HHDM_BASE), 0, PAGE_SIZE);
+    if (vmmMapPage(proc->pml4, topPageVaddr, (uint64_t)stackFrame, VMM_FLAG_PRESENT | VMM_FLAG_WRITABLE | VMM_FLAG_USER) != 0) {
+      pmm_free_frame(stackFrame);
+      vmaDestroyAll(proc);
+      vmmDestroyAddressSpace(proc->pml4);
+      kfree(proc);
+      kfree(rawData);
+      return NULL;
+    }
+
+    uint8_t *stackMem = (uint8_t *)stackFrame + HHDM_BASE;
+    uint64_t currentUserSp = stackTop;
+
+    const char *defaultArgv[2] = { proc->name, NULL };
+    if (!argv) {
+      argv = defaultArgv;
+    }
+
+    int argc = 0;
+    while (argv[argc]) argc++;
+
+    uint64_t *userArgvPtrs = (uint64_t *)kmalloc(((size_t)argc + 1) * sizeof(uint64_t));
+  if (!userArgvPtrs) {
     vmaDestroyAll(proc);
     vmmDestroyAddressSpace(proc->pml4);
     kfree(proc);
     kfree(rawData);
     return NULL;
   }
-
-  uint64_t topPageVaddr = stackTop - PAGE_SIZE;
-  void *stackFrame = pmm_alloc_frame();
-  if (!stackFrame) {
-    vmaDestroyAll(proc);
-    vmmDestroyAddressSpace(proc->pml4);
-    kfree(proc);
-    kfree(rawData);
-    return NULL;
-  }
-
-  memset((void *)((uint64_t)stackFrame + HHDM_BASE), 0, PAGE_SIZE);
-  if (vmmMapPage(proc->pml4, topPageVaddr, (uint64_t)stackFrame, VMM_FLAG_PRESENT | VMM_FLAG_WRITABLE | VMM_FLAG_USER) != 0) {
-    pmm_free_frame(stackFrame);
-    vmaDestroyAll(proc);
-    vmmDestroyAddressSpace(proc->pml4);
-    kfree(proc);
-    kfree(rawData);
-    return NULL;
-  }
-
-  uint8_t *stackMem = (uint8_t *)stackFrame + HHDM_BASE;
-  uint64_t currentUserSp = stackTop;
-
-  const char *defaultArgv[2] = { proc->name, NULL };
-  if (!argv) {
-    argv = defaultArgv;
-  }
-
-  int argc = 0;
-  while (argv[argc]) argc++;
-  if (argc > 63) argc = 63;
-
-  uint64_t userArgvPtrs[64];
 
   for (int i = argc - 1; i >= 0; i--) {
     size_t len = strlen(argv[i]) + 1;
@@ -437,27 +551,62 @@ Process *schedSpawn(const char *path, const char *name, const char **argv, const
     memcpy(stackMem + pageOffset, argv[i], len);
     userArgvPtrs[i] = currentUserSp;
   }
-
-  currentUserSp &= ~0x7ULL;
+  userArgvPtrs[argc] = 0;
 
   int envc = 0;
   if (envp) {
     while (envp[envc]) envc++;
   }
 
-  int totalQwords = (int)(sizeof(uint64_t) * 2 * 3 / 8) + 1 + envc + 1 + argc + 1;
-  if ((totalQwords % 2) == 0) {
-    currentUserSp -= 8;
+  uint64_t *userEnvpPtrs = (uint64_t *)kmalloc(((size_t)envc + 1) * sizeof(uint64_t));
+  if (!userEnvpPtrs) {
+    kfree(userArgvPtrs);
+    vmaDestroyAll(proc);
+    vmmDestroyAddressSpace(proc->pml4);
+    kfree(proc);
+    kfree(rawData);
+    return NULL;
+  }
+
+  for (int i = envc - 1; i >= 0; i--) {
+    size_t len = strlen(envp[i]) + 1;
+    currentUserSp -= len;
+    uint64_t pageOffset = currentUserSp - topPageVaddr;
+    memcpy(stackMem + pageOffset, envp[i], len);
+    userEnvpPtrs[i] = currentUserSp;
+  }
+  userEnvpPtrs[envc] = 0;
+
+  currentUserSp -= 16;
+  uint64_t randomPtr = currentUserSp;
+  uint64_t rPageOffset = currentUserSp - topPageVaddr;
+  uint64_t *randomData = (uint64_t *)(stackMem + rPageOffset);
+  uint32_t lo, hi;
+  __asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi));
+  randomData[0] = (((uint64_t)hi << 32) | lo) ^ 0x9e3779b97f4a7c15ULL;
+  randomData[1] = (randomData[0] >> 17) ^ ((uint64_t)proc->pid << 16) ^ 0xbf58476d1ce4e5b9ULL;
+
+  currentUserSp &= ~0xFULL;
+
+  struct { uint64_t type; uint64_t val; } auxv[] = {
+    { AT_PHDR, appPhdrUserAddr },
+    { AT_PHENT, ehdr->e_phentsize },
+    { AT_PHNUM, ehdr->e_phnum },
+    { AT_PAGESZ, PAGE_SIZE },
+    { AT_BASE, interpBase },
+    { AT_FLAGS, 0 },
+    { AT_ENTRY, ehdr->e_entry + loadBias },
+    { AT_RANDOM, randomPtr },
+    { AT_NULL, 0 }
+  };
+  size_t auxvCount = sizeof(auxv) / sizeof(auxv[0]);
+
+  size_t totalQwords = (auxvCount * 2) + 1 + (size_t)envc + 1 + (size_t)argc + 1;
+  if (((currentUserSp - (totalQwords * sizeof(uint64_t))) & 0xF) != 0) {
+    currentUserSp -= sizeof(uint64_t);
     *(uint64_t *)(stackMem + (currentUserSp - topPageVaddr)) = 0;
   }
 
-  struct { uint64_t type; uint64_t val; } auxv[] = {
-    { 9, ehdr->e_entry + loadBias },
-    { 6, PAGE_SIZE },
-    { 0, 0 }
-  };
-
-  size_t auxvCount = sizeof(auxv) / sizeof(auxv[0]);
   for (int i = (int)auxvCount - 1; i >= 0; i--) {
     currentUserSp -= 16;
     uint64_t pageOffset = currentUserSp - topPageVaddr;
@@ -465,30 +614,27 @@ Process *schedSpawn(const char *path, const char *name, const char **argv, const
     *(uint64_t *)(stackMem + pageOffset + 8) = auxv[i].val;
   }
 
-  currentUserSp -= 8;
+  currentUserSp -= sizeof(uint64_t);
   *(uint64_t *)(stackMem + (currentUserSp - topPageVaddr)) = 0;
 
   for (int i = envc - 1; i >= 0; i--) {
-    size_t len = strlen(envp[i]) + 1;
-    uint64_t strSp = currentUserSp - len;
-    memcpy(stackMem + (strSp - topPageVaddr), envp[i], len);
-    currentUserSp = strSp & ~0x7ULL;
-    currentUserSp -= 8;
-    *(uint64_t *)(stackMem + (currentUserSp - topPageVaddr)) = strSp;
+    currentUserSp -= sizeof(uint64_t);
+    *(uint64_t *)(stackMem + (currentUserSp - topPageVaddr)) = userEnvpPtrs[i];
   }
 
-  currentUserSp -= 8;
+  currentUserSp -= sizeof(uint64_t);
   *(uint64_t *)(stackMem + (currentUserSp - topPageVaddr)) = 0;
 
   for (int i = argc - 1; i >= 0; i--) {
-    currentUserSp -= 8;
+    currentUserSp -= sizeof(uint64_t);
     *(uint64_t *)(stackMem + (currentUserSp - topPageVaddr)) = userArgvPtrs[i];
   }
 
-  currentUserSp -= 8;
+  currentUserSp -= sizeof(uint64_t);
   *(uint64_t *)(stackMem + (currentUserSp - topPageVaddr)) = (uint64_t)argc;
 
-  uint64_t entryPoint = ehdr->e_entry + loadBias;
+  kfree(userArgvPtrs);
+  kfree(userEnvpPtrs);
   kfree(rawData);
 
   Thread *thread = schedCreateUserThread(proc, entryPoint, currentUserSp, 0);

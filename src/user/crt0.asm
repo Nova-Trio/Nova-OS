@@ -1,6 +1,6 @@
 global _start
 extern main
-global exit
+extern exit
 
 section .text
 _start:
@@ -19,13 +19,6 @@ call main
 mov rdi, rax
 call exit
 
-.halt:
-hlt
-jmp .halt
-
-exit:
-mov rax, 60
-syscall
 .halt:
 hlt
 jmp .halt

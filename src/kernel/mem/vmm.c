@@ -328,17 +328,12 @@ int vmaDestroy(Process *proc, uint64_t start, uint64_t size) {
   Vma *curr = proc->vmaHead;
   while (curr) {
     Vma *next = curr->next;
-    if (curr->start >= pageStart && curr->end <= pageEnd) {
-      if (curr->prev) {
-        curr->prev->next = curr->next;
-      } else {
-        proc->vmaHead = curr->next;
-      }
-      if (curr->next) {
-        curr->next->prev = curr->prev;
-      }
 
-      for (uint64_t addr = curr->start; addr < curr->end; addr += PAGE_SIZE) {
+    if (curr->end > pageStart && curr->start < pageEnd) {
+      uint64_t unmapStart = (curr->start > pageStart) ? curr->start : pageStart;
+      uint64_t unmapEnd = (curr->end < pageEnd) ? curr->end : pageEnd;
+
+      for (uint64_t addr = unmapStart; addr < unmapEnd; addr += PAGE_SIZE) {
         uint64_t phys = vmmVirtToPhys(proc->pml4, addr);
         if (phys) {
           vmmUnmapPage(proc->pml4, addr);
@@ -346,8 +341,37 @@ int vmaDestroy(Process *proc, uint64_t start, uint64_t size) {
         }
       }
 
-      kfree(curr);
+      if (curr->start >= pageStart && curr->end <= pageEnd) {
+        if (curr->prev) {
+          curr->prev->next = curr->next;
+        } else {
+          proc->vmaHead = curr->next;
+        }
+        if (curr->next) {
+          curr->next->prev = curr->prev;
+        }
+        kfree(curr);
+      } else if (curr->start < pageStart && curr->end > pageEnd) {
+        Vma *right = (Vma *)kmalloc(sizeof(Vma));
+        if (right) {
+          right->start = pageEnd;
+          right->end = curr->end;
+          right->flags = curr->flags;
+          right->next = curr->next;
+          right->prev = curr;
+          if (curr->next) {
+            curr->next->prev = right;
+          }
+          curr->next = right;
+        }
+        curr->end = pageStart;
+      } else if (curr->start < pageStart) {
+        curr->end = pageStart;
+      } else {
+        curr->start = pageEnd;
+      }
     }
+
     curr = next;
   }
 

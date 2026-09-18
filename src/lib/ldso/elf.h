@@ -116,6 +116,10 @@ typedef struct {
 #define ELF64_ST_BIND(i) ((i) >> 4)
 #define ELF64_ST_TYPE(i) ((i) & 0xF)
 
+#define STB_LOCAL 0
+#define STB_GLOBAL 1
+#define STB_WEAK 2
+
 #define ELF64_R_SYM(i) ((i) >> 32)
 #define ELF64_R_TYPE(i) ((i) & 0xFFFFFFFF)
 

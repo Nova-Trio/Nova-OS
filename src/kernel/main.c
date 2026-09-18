@@ -109,20 +109,20 @@ __attribute__((noreturn)) void _start(BootInfo *boot_info) {
 
   void *nv_driver_data = NULL;
   size_t nv_driver_size = 0;
-  if (fs_read_file("/nova/drivers/nvidia.elf", &nv_driver_data, &nv_driver_size) == 0 && nv_driver_data) {
+  if (fs_read_file("/nova/drivers/virtiogpu.elf", &nv_driver_data, &nv_driver_size) == 0 && nv_driver_data) {
     module_load("nvidia", nv_driver_data, nv_driver_size);
     kfree(nv_driver_data);
   } else {
-    kprintf("Could not read /nova/drivers/nvidia.elf\n");
+    kprintf("Could not read /nova/drivers/virtiogpu.elf\n");
   }
 
 
 
   syscallInit();
 
-  //Process *testProc = schedSpawn("/EFI/novaos/test.elf", "init", NULL, NULL);
-  //(void)testProc;
-  //schedYield();
+  Process *testProc = schedSpawn("/EFI/novaos/test.elf", "init", NULL, NULL);
+  (void)testProc;
+  schedYield();
 
 
   //*(volatile uint32_t *)0x0 = 0x12345678;

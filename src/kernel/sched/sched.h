@@ -74,6 +74,20 @@ typedef struct Thread {
   uint8_t fpuState[512] __attribute__((aligned(16)));
 } Thread;
 
+typedef struct FileHandle {
+  char *path;
+  uint64_t offset;
+  uint64_t size;
+  uint32_t flags;
+  uint32_t isDir;
+} FileHandle;
+
+typedef struct FileTable {
+  Spinlock lock;
+  FileHandle **handles;
+  size_t capacity;
+} FileTable;
+
 typedef struct Process {
   uint32_t pid;
   PageDirectory pml4;
@@ -93,6 +107,7 @@ typedef struct Process {
   };
 
   DriverHandleTable handleTable;
+  FileTable fileTable;
 
   Thread *threads;
   struct Process *next;

@@ -68,6 +68,21 @@ __attribute__((used)) int64_t syscallDispatch(Registers *Regs) {
     case SYS_WRITE:
       return sysWrite((int)Regs->rdi, (const void *)Regs->rsi, (size_t)Regs->rdx);
 
+    case SYS_OPEN:
+      return sysOpen((const char *)Regs->rdi, (int)Regs->rsi, (uint32_t)Regs->rdx);
+
+    case SYS_CLOSE:
+      return sysClose((int)Regs->rdi);
+
+    case SYS_STAT:
+      return sysStat((const char *)Regs->rdi, (Stat *)Regs->rsi);
+
+    case SYS_FSTAT:
+      return sysFstat((int)Regs->rdi, (Stat *)Regs->rsi);
+
+    case SYS_LSEEK:
+      return sysLseek((int)Regs->rdi, (int64_t)Regs->rsi, (int)Regs->rdx);
+
     case SYS_MMAP:
       return (int64_t)sysMmap((void *)Regs->rdi, (size_t)Regs->rsi, (int)Regs->rdx, (int)Regs->r10, (int)Regs->r8, (int64_t)Regs->r9);
 
